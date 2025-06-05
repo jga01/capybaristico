@@ -1,0 +1,133 @@
+.magnified-card-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    /* Ensure it's on top */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.magnified-card-content {
+    background-color: #2c3e50;
+    /* Dark blue-grey theme */
+    color: #ecf0f1;
+    /* Light text color */
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    gap: 25px;
+    width: 90%;
+    max-width: 750px;
+    /* Max width of the modal */
+    max-height: 90vh;
+    /* Max height */
+    position: relative;
+    overflow-y: auto;
+    /* Allow scrolling if content overflows */
+}
+
+.magnified-card-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    background: none;
+    border: none;
+    color: #ecf0f1;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.magnified-card-close-btn:hover {
+    color: #e74c3c;
+    /* Red on hover */
+}
+
+.magnified-card-image-container {
+    flex: 0 0 280px;
+    /* Fixed width for image container */
+    height: auto;
+    /* Or set a fixed height if preferred, e.g., 392px for 1.4 aspect ratio */
+}
+
+.magnified-card-image-container img {
+    width: 100%;
+    height: auto;
+    /* Maintain aspect ratio */
+    max-height: 50vh;
+    /* Limit image height to prevent overflow on smaller screens */
+    object-fit: contain;
+    /* Ensure entire image is visible */
+    border-radius: 8px;
+    border: 2px solid #34495e;
+}
+
+.magnified-card-details {
+    flex: 1;
+    overflow-y: auto;
+    /* Allow details to scroll if they are too long */
+    padding-right: 10px;
+    /* For scrollbar */
+}
+
+.magnified-card-details h3 {
+    margin-top: 0;
+    font-size: 1.8em;
+    color: #e67e22;
+    /* Orange accent for name */
+    border-bottom: 1px solid #34495e;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.magnified-card-details h4 {
+    font-size: 1.3em;
+    color: #1abc9c;
+    /* Teal accent for "Effect" */
+    margin-top: 20px;
+    margin-bottom: 8px;
+}
+
+.magnified-card-details p {
+    margin: 8px 0;
+    line-height: 1.6;
+    font-size: 0.95em;
+}
+
+.magnified-card-stats {
+    display: flex;
+    gap: 20px;
+    margin: 15px 0;
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 5px;
+}
+
+.magnified-card-stats span {
+    font-size: 1.1em;
+}
+
+.magnified-card-rarity {
+    font-style: italic;
+    color: #bdc3c7;
+    /* Lighter grey for rarity */
+}
+
+.magnified-card-effect {
+    white-space: pre-wrap;
+    /* Preserve line breaks in effect text */
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 10px;
+    border-radius: 5px;
+    border-left: 3px solid #e67e22;
+    min-height: 50px;
+}

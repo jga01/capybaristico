@@ -1,0 +1,191 @@
+/* frontend/src/App.css */
+
+/* General App Styling (mostly for lobby, game over states) */
+.App {
+  width: 100%; /* Ensure .App can take full width if needed */
+  min-height: 100%; /* Ensure .App can take full height if needed */
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Center content like lobby, game over */
+  justify-content: center; /* Center content vertically */
+  text-align: center;
+  box-sizing: border-box; /* Include padding and border in element's total width and height */
+  color: #ddd; /* Default text color for non-game screen content */
+}
+
+/* Styles for when .App contains the GameScreen (via App.jsx logic) */
+.App.game-active {
+  /* This container will be 100vw/100vh via inline styles in App.jsx */
+  /* It directly holds GameScreen, which then holds the Canvas */
+  text-align: left; /* GameScreen and its children will handle their own text alignments */
+  padding: 0;
+  margin: 0;
+  overflow: hidden; /* Crucial to prevent scrollbars from its direct children */
+  position: relative; /* For positioning floating UI elements within GameScreen */
+  background-color: #1a1d21; /* Fallback background, usually covered by canvas */
+}
+
+
+/* Error Bar - used in App.jsx and GameScreen.jsx */
+.app-level-error-bar {
+  position: absolute; /* Ensure it floats on top of other content if needed */
+  top: 10px; /* Position from the top of its parent */
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #ffdddd;
+  border: 1px solid #ff0000;
+  color: #d8000c;
+  padding: 10px 15px;
+  text-align: center;
+  border-radius: 4px;
+  z-index: 200; /* High z-index to appear above most elements */
+  width: auto; /* Fit content */
+  min-width: 300px;
+  max-width: 90%;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Game Over Screen - used in App.jsx */
+.game-over-screen {
+  background-color: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 30px 40px;
+  border-radius: 10px;
+  width: auto; /* Fit content */
+  min-width: 300px;
+  max-width: 500px;
+  box-shadow: 0 0 20px rgba(100, 100, 255, 0.3);
+  /* Centering will be handled by parent (.App being a flex container) */
+  /* Or, if it needs to be absolute over the game canvas:
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 300; 
+  */
+}
+
+.game-over-screen h2 {
+  font-size: 2.2em;
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #7fceff; /* Light blue accent */
+}
+
+.game-over-screen p {
+  font-size: 1.2em;
+  margin-bottom: 25px;
+  line-height: 1.6;
+}
+
+.game-over-screen .action-button {
+  background-color: #007bff; /* Primary blue */
+  color: white;
+  padding: 12px 25px;
+  border: none;
+  border-radius: 5px;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.game-over-screen .action-button:hover {
+  background-color: #0056b3; /* Darker blue on hover */
+}
+
+
+/* Lobby Specific Styles (if not overridden by inline styles in App.jsx) */
+.App:not(.game-active) header h1 { /* Lobby title */
+  color: #61dafb; /* React blue for lobby */
+  margin-bottom: 5px;
+}
+.App:not(.game-active) header p { /* Socket status in lobby */
+  font-size: 0.9em;
+  margin-top: 0;
+  margin-bottom: 15px;
+}
+
+.App:not(.game-active) input[type="text"] {
+  padding: 10px 12px;
+  margin-right: 10px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #333;
+  color: white;
+  font-size: 1em;
+}
+
+.App:not(.game-active) button {
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.2s ease;
+}
+.App:not(.game-active) button:disabled {
+  background-color: #555 !important;
+  cursor: not-allowed;
+  color: #aaa;
+}
+
+.App:not(.game-active) hr {
+  border-color: #444;
+  width: 80%;
+  margin-top: 25px;
+  margin-bottom: 25px;
+}
+
+.App:not(.game-active) h2 { /* "Open Lobbies" title */
+  margin-bottom: 15px;
+}
+
+/* Lobby Item styling (already has inline styles in App.jsx for some parts) */
+/* This can augment or provide defaults if inline styles are removed/changed */
+/* Example:
+.lobby-item-container {
+  border: 1px solid #444;
+  margin: 8px auto;
+  padding: 10px 15px;
+  background: #2e2e2e;
+  color: #eee;
+  border-radius: 5px;
+  width: 80%;
+  max-width: 400px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.lobby-item-container p {
+  margin: 5px 0;
+  font-size: 0.95em;
+}
+*/
+
+/* Vite default logo styles (if still used in lobby) */
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo { /* If you have an <a> tag */
+    animation: logo-spin infinite 20s linear;
+  }
+}
