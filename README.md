@@ -33,7 +33,7 @@ This project is currently in active development, focusing on a Minimum Viable De
 
 *   `backend/`: Contains the Java Spring Boot application.
 *   `frontend/`: Contains the React.js application.
-*   `(No schema.sql currently, ddl-auto=update is used)`
+*   `database/schema.sql`: Provides the definitive database structure.
 
 ## Setup and Installation
 
@@ -55,7 +55,7 @@ This project is currently in active development, focusing on a Minimum Viable De
     GRANT ALL PRIVILEGES ON DATABASE capycards_db TO capycards_user;
     ```
     *(Match password in `application.properties`)*
-3.  The backend will attempt to create/update tables via `spring.jpa.hibernate.ddl-auto=update`.
+3.  The backend will initialize the database using `database/schema.sql`. For development purposes, `spring.jpa.hibernate.ddl-auto=update` can be utilized, but `database/schema.sql` defines the definitive database structure.
 
 ### 2. Backend Setup
 
@@ -85,7 +85,19 @@ This project is currently in active development, focusing on a Minimum Viable De
 *   **Card Effects:** Many cards have unique abilities triggered by game events (play, death, attack, etc.) or are passive. These are central to strategy.
 *   **End Turn:** Discard excess cards (if hand > 5). Check if you lost via Field Control. Pass turn.
 
+## Contributing
+
+Contributions are welcome! If you have suggestions for improvements, new features, or bug fixes, please feel free to:
+1. Open an issue to discuss the change.
+2. Fork the repository and create a pull request with your changes.
+
+## License
+
+[TODO: Add a LICENSE file to the project (e.g., MIT, GPL, Apache 2.0) and update this section to reflect the chosen license. For example: 'This project is licensed under the MIT License - see the LICENSE.md file for details.']
+
 ## Current Status & Next Steps
+
+**[TODO: Update this section with the latest project progress, key achievements since the last update, and immediate next steps. Focus on the Card Effect System implementation status if that's still the priority.]**
 
 The project is an MVDP with a functional core game loop, lobby system, and UI. Key game rule changes (deck generation, draw up to 5, multiple card plays, field control loss) have been implemented.
 The current major focus is on implementing the **Card Effect System** for the 31 defined cards. This involves:
