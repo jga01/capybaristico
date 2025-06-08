@@ -5,8 +5,7 @@ import * as THREE from 'three';
 
 // Component Imports
 import Card3D from './Card3D';
-import DamageNumber from './DamageNumber';
-import EffectRenderer from './EffectRenderer'; // The new effects manager
+import EffectRenderer from './EffectRenderer';
 import { CARD_WIDTH, CARD_HEIGHT, CARD_DEPTH } from '../constants';
 
 // --- Sub-Components for the Scene ---
@@ -15,8 +14,8 @@ const TableTop = ({ onTableClick }) => {
   const tableTexture = useLoader(THREE.TextureLoader, '/assets/textures/table.png');
   useMemo(() => {
     if (tableTexture) {
-      tableTexture.wrapS = tableTexture.wrapT = THREE.RepeatWrapping;
-      tableTexture.repeat.set(8, 5);
+      // tableTexture.wrapS = tableTexture.wrapT = THREE.RepeatWrapping;
+      // tableTexture.repeat.set(8, 5);
       tableTexture.anisotropy = 16;
     }
   }, [tableTexture]);
@@ -83,13 +82,13 @@ const ThreeCanvasInternal = forwardRef(({
   selectedHandCardInfo,
   selectedAttackerInfo,
   selectedAbilitySourceInfo,
-  selectedAbilityOption,
   isTargetingMode,
-  currentEffect, // Prop for the effect currently being animated
-  onEffectComplete, // Callback to signal animation is done
+  selectedAbilityOption, // Added isTargetingMode and selectedAbilityOption
+  currentEffect,
+  onEffectComplete,
 }, ref) => {
 
-  const cardMeshes = useRef({}); // Store refs to all card meshes by instanceId
+  const cardMeshes = useRef({});
   const cardBackTexture = useLoader(THREE.TextureLoader, '/assets/cards_images/back.png');
 
   useMemo(() => {
@@ -98,9 +97,8 @@ const ThreeCanvasInternal = forwardRef(({
     }
   }, [cardBackTexture]);
 
-  // Loading guard
   if (!gameState || !gameState.player1State || !gameState.player2State) {
-    return null; // The parent component shows the loading text
+    return null;
   }
 
   const { player1State, player2State } = gameState;
@@ -126,17 +124,12 @@ const ThreeCanvasInternal = forwardRef(({
     return [xPos, 0.001 + CARD_DEPTH / 2, -3.8];
   };
 
-  // Expose a method to the parent (GameScreen) to get card positions for effects
   useImperativeHandle(ref, () => ({
     findCardPosition(instanceId) {
       const mesh = cardMeshes.current[instanceId];
       if (mesh) {
-        // Return a clone to prevent accidental mutation of the mesh's position
         return mesh.position.clone();
       }
-
-      // Fallback logic for cards that might have been removed from the scene
-      // This is crucial for effects like CARD_DESTROYED
       let position = null;
       const findInField = (field, isSelf) => {
         field.forEach((card, index) => {
@@ -146,25 +139,24 @@ const ThreeCanvasInternal = forwardRef(({
           }
         });
       };
-
       findInField(viewingPlayer.field, true);
       if (!position) findInField(opponentPlayer.field, false);
-
       return position;
     }
   }));
 
-  // Render logic for cards on the player's field
-  const playerInPlayCards = useMemo(() => viewingPlayer.field.map((card, index) => {
+  // Create a simple dependency from the field contents
+  const playerFieldDependency = viewingPlayer.field.map(c => c?.instanceId || 'null').join(',');
+  const opponentFieldDependency = opponentPlayer.field.map(c => c?.instanceId || 'null').join(',');
+
+  const playerInPlayCards = viewingPlayer.field.map((card, index) => {
     const { x, yCard, ySlot, z } = getFieldSlotPosition(index, true);
     if (card) {
       const isSelectedAsAttacker = selectedAttackerInfo?.instanceId === card.instanceId;
       const isSelectedAsAbilitySource = selectedAbilitySourceInfo?.instanceId === card.instanceId;
       let isTargetable = isTargetingMode && (
-        (selectedAttackerInfo) ||
         (selectedAbilityOption?.requiresTarget === "OWN_FIELD_CARD" || selectedAbilityOption?.requiresTarget === "ANY_FIELD_CARD")
       );
-
       return (
         <Card3D
           ref={el => cardMeshes.current[card.instanceId] = el}
@@ -176,6 +168,7 @@ const ThreeCanvasInternal = forwardRef(({
           onClick={(data, mesh) => onCardClickOnField(data, mesh, viewingPlayer.playerId, index)}
           isHighlighted={isSelectedAsAttacker || isSelectedAsAbilitySource || isTargetable}
           highlightColor={isSelectedAsAttacker ? '#ffc107' : isSelectedAsAbilitySource ? '#29b6f6' : '#e57373'}
+          isExhausted={card.isExhausted}
         />);
     }
     return (
@@ -185,10 +178,9 @@ const ThreeCanvasInternal = forwardRef(({
         onClick={() => onEmptyFieldSlotClick(viewingPlayer.playerId, index)}
         isTargetableForPlay={!!selectedHandCardInfo}
       />);
-  }), [viewingPlayer.field, selectedHandCardInfo, selectedAttackerInfo, selectedAbilitySourceInfo, isTargetingMode, selectedAbilityOption]);
+  });
 
-  // Render logic for cards on the opponent's field
-  const opponentInPlayCards = useMemo(() => opponentPlayer.field.map((card, index) => {
+  const opponentInPlayCards = opponentPlayer.field.map((card, index) => {
     const { x, yCard, ySlot, z } = getFieldSlotPosition(index, false);
     if (card) {
       let isTargetable = isTargetingMode && (
@@ -206,12 +198,12 @@ const ThreeCanvasInternal = forwardRef(({
           onClick={(data, mesh) => onCardClickOnField(data, mesh, opponentPlayer.playerId, index)}
           isHighlighted={isTargetable}
           highlightColor={'#e57373'}
+          isExhausted={card.isExhausted}
         />);
     }
     return <FieldSlotVisual key={`opp-empty-slot-${index}`} position={new THREE.Vector3(x, ySlot, z)} />;
-  }), [opponentPlayer.field, selectedAttackerInfo, selectedAbilitySourceInfo, isTargetingMode, selectedAbilityOption]);
+  });
 
-  // Render logic for opponent's hand
   const opponentHandDisplay = useMemo(() => Array.from({ length: opponentPlayer.handSize }).map((_, index) => (
     <Card3D
       key={`opp-hand-${index}`}
@@ -222,7 +214,6 @@ const ThreeCanvasInternal = forwardRef(({
     />
   )), [opponentPlayer.handSize]);
 
-  // Deck and Discard Pile visualization logic
   const pileThicknessMultiplier = 0.15;
   const minPileHeight = 0.01;
   const tableEpsilon = -0.048;
@@ -241,7 +232,6 @@ const ThreeCanvasInternal = forwardRef(({
 
   return (
     <>
-      {/* --- SCENE SETUP (Lights, Fog) --- */}
       <ambientLight intensity={0.6} />
       <directionalLight
         position={[4, 20, 8]} intensity={1.5} castShadow
@@ -251,14 +241,12 @@ const ThreeCanvasInternal = forwardRef(({
       <hemisphereLight skyColor={0xbde0ff} groundColor={0x505070} intensity={0.35} />
       <fog attach="fog" args={['#0A0B0F', cameraSettings.position[1] + 12, cameraSettings.far + 50]} />
 
-      {/* --- RENDERED OBJECTS --- */}
       <Suspense fallback={null}>
         <TableTop onTableClick={onTableClick} />
         {playerInPlayCards}
         {opponentInPlayCards}
         {opponentHandDisplay}
 
-        {/* Deck & Discard Piles */}
         <mesh position={[-CARD_WIDTH * 3, playerDeckHeight / 2 + tableEpsilon, playerPilesZ]} visible={viewingPlayer.deckSize > 0} castShadow receiveShadow material={pileMaterial}>
           <boxGeometry args={[CARD_WIDTH, playerDeckHeight, CARD_HEIGHT]} />
         </mesh>
@@ -272,17 +260,14 @@ const ThreeCanvasInternal = forwardRef(({
           <boxGeometry args={[CARD_WIDTH, opponentDiscardHeight, CARD_HEIGHT]} />
         </mesh>
 
-        {/* The Effect Renderer - this is where all the magic happens! */}
         <EffectRenderer
           currentEffect={currentEffect}
           onEffectComplete={onEffectComplete}
-          findCardPosition={(id) => ref.current?.findCardPosition(id)} // Use the exposed method
-          cardMeshes={cardMeshes} // Pass the refs for direct animation if needed
+          findCardPosition={(id) => ref.current?.findCardPosition(id)}
         />
 
       </Suspense>
 
-      {/* --- CONTROLS --- */}
       <OrbitControls
         enablePan={true} enableRotate={true} zoomSpeed={0.6} target={[0, 0, 0]}
         minDistance={cameraSettings.position[1] - 9} maxDistance={cameraSettings.position[1] + 20}
@@ -292,15 +277,8 @@ const ThreeCanvasInternal = forwardRef(({
   );
 });
 
-
-// --- The Wrapper Component that gets exported ---
-
-// This wrapper component creates the <Canvas> and the ref, then passes it
-// down to the internal component. This is the standard pattern for using
-// `forwardRef` with R3F components that need to be accessed from parents.
 const CanvasWrapper = (props) => {
   const canvasRef = useRef();
-
   return (
     <Canvas
       shadows

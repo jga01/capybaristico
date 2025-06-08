@@ -11,23 +11,73 @@ public class PlayerStateDTO {
     private List<CardInstanceDTO> field; // Nulls can represent empty slots
     private int deckSize;
     private int discardPileSize;
-    // private int lifePoints; // If players have direct life
+    private int attacksDeclaredThisTurn;
 
-    public PlayerStateDTO() {}
+    public PlayerStateDTO() {
+    }
 
     // Getters and Setters
-    public String getPlayerId() { return playerId; }
-    public void setPlayerId(String playerId) { this.playerId = playerId; }
-    public String getDisplayName() { return displayName; }
-    public void setDisplayName(String displayName) { this.displayName = displayName; }
-    public List<CardInstanceDTO> getHand() { return hand; }
-    public void setHand(List<CardInstanceDTO> hand) { this.hand = hand; }
-    public int getHandSize() { return handSize; }
-    public void setHandSize(int handSize) { this.handSize = handSize; }
-    public List<CardInstanceDTO> getField() { return field; }
-    public void setField(List<CardInstanceDTO> field) { this.field = field; }
-    public int getDeckSize() { return deckSize; }
-    public void setDeckSize(int deckSize) { this.deckSize = deckSize; }
-    public int getDiscardPileSize() { return discardPileSize; }
-    public void setDiscardPileSize(int discardPileSize) { this.discardPileSize = discardPileSize; }
+    public String getPlayerId() {
+        return playerId;
+    }
+
+    public void setPlayerId(String playerId) {
+        this.playerId = playerId;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public List<CardInstanceDTO> getHand() {
+        return hand;
+    }
+
+    public void setHand(List<CardInstanceDTO> hand) {
+        this.hand = hand;
+    }
+
+    public int getHandSize() {
+        return handSize;
+    }
+
+    public void setHandSize(int handSize) {
+        this.handSize = handSize;
+    }
+
+    public List<CardInstanceDTO> getField() {
+        return field;
+    }
+
+    public void setField(List<CardInstanceDTO> field) {
+        this.field = field;
+    }
+
+    public int getDeckSize() {
+        return deckSize;
+    }
+
+    public void setDeckSize(int deckSize) {
+        this.deckSize = deckSize;
+    }
+
+    public int getDiscardPileSize() {
+        return discardPileSize;
+    }
+
+    public void setDiscardPileSize(int discardPileSize) {
+        this.discardPileSize = discardPileSize;
+    }
+
+    public int getAttacksDeclaredThisTurn() {
+        return attacksDeclaredThisTurn;
+    }
+
+    public void setAttacksDeclaredThisTurn(int attacksDeclaredThisTurn) {
+        this.attacksDeclaredThisTurn = attacksDeclaredThisTurn;
+    }
 }

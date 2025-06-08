@@ -1,7 +1,6 @@
 package com.jamestiago.capycards.game.effects;
 
 import com.jamestiago.capycards.game.CardInstance;
-import com.jamestiago.capycards.game.Game;
 import com.jamestiago.capycards.game.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,10 +8,8 @@ import java.util.Map;
 
 public class ValueResolver {
     private static final Logger logger = LoggerFactory.getLogger(ValueResolver.class);
-    private final Game game;
 
-    public ValueResolver(Game game) {
-        this.game = game;
+    public ValueResolver() {
     }
 
     @SuppressWarnings("unchecked")

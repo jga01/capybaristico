@@ -44,18 +44,24 @@ const EffectRenderer = ({ currentEffect, onEffectComplete, findCardPosition }) =
               <ParticleEffect config={PARTICLE_CONFIGS.DAMAGE} />
             </>
           )}
+          {type === 'ZERO_DAMAGE' && (
+            <>
+              <DamageNumber amount={0} position={new THREE.Vector3(0, 0.5, 0)} />
+              <ParticleEffect config={PARTICLE_CONFIGS.BLOCK} />
+            </>
+          )}
           {type === 'HEAL' && <ParticleEffect config={PARTICLE_CONFIGS.HEAL} />}
           {type === 'STAT_CHANGE' && <ParticleEffect config={isBuff ? PARTICLE_CONFIGS.BUFF : PARTICLE_CONFIGS.DEBUFF} />}
           {type === 'CARD_PLAYED' && <ParticleEffect config={PARTICLE_CONFIGS.CARD_PLAYED} />}
           {type === 'AURA_PULSE' && <ParticleEffect config={{ ...PARTICLE_CONFIGS.AURA_PULSE, color: color || '#f0f' }} />}
-          
+
           {/* --- COMPOSITION EXAMPLE --- */}
           {type === 'CARD_DESTROYED' && (
             <>
               {/* Smoky explosion that respects depth */}
               <ParticleEffect config={PARTICLE_CONFIGS.DESTROY} />
               {/* A secondary, smaller impact burst that renders on top */}
-              <ParticleEffect config={{...PARTICLE_CONFIGS.DAMAGE, count: 40, lifetime: {min: 0.4, max: 0.8}}} />
+              <ParticleEffect config={{ ...PARTICLE_CONFIGS.DAMAGE, count: 40, lifetime: { min: 0.4, max: 0.8 } }} />
             </>
           )}
         </group>
@@ -64,9 +70,9 @@ const EffectRenderer = ({ currentEffect, onEffectComplete, findCardPosition }) =
       {/* --- SOURCE-ORIGINATING EFFECTS --- */}
       {sourcePosition && (
         <group position={sourcePosition}>
-            {type === 'SHOCKWAVE' && (
-                <ParticleEffect config={{ ...PARTICLE_CONFIGS.SHOCKWAVE, color: color || '#FFFFFF' }} />
-            )}
+          {type === 'SHOCKWAVE' && (
+            <ParticleEffect config={{ ...PARTICLE_CONFIGS.SHOCKWAVE, color: color || '#FFFFFF' }} />
+          )}
         </group>
       )}
     </group>

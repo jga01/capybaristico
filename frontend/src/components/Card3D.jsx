@@ -11,7 +11,8 @@ const Card3D = ({
     isHighlighted,
     highlightColor,
     isFaceDown,
-    isDamagedRecently, // New prop for flicker
+    isDamagedRecently,
+    isExhausted, // ADDED
     scale = 1,
 }) => {
     const meshRef = useRef();
@@ -63,7 +64,7 @@ const Card3D = ({
 
         if (isDamagedRecently) {
             currentEmissiveColor = new THREE.Color("red");
-            currentEmissiveIntensity = 0.8; // Make flicker prominent
+            currentEmissiveIntensity = 0.8;
         }
 
         const createMaterial = (textureMap) => new THREE.MeshStandardMaterial({
@@ -73,6 +74,7 @@ const Card3D = ({
             emissive: currentEmissiveColor,
             emissiveIntensity: currentEmissiveIntensity,
             side: THREE.FrontSide,
+            color: isExhausted ? '#999' : '#fff' // <-- VISUAL CUE FOR EXHAUSTED
         });
         const edgeMaterial = new THREE.MeshStandardMaterial({
             color: '#202023',
@@ -86,7 +88,7 @@ const Card3D = ({
             createMaterial(frontTexture),
             createMaterial(backTexture)
         ];
-    }, [frontTexture, backTexture, isHighlighted, highlightColor, isDamagedRecently]); // Added isDamagedRecently
+    }, [frontTexture, backTexture, isHighlighted, highlightColor, isDamagedRecently, isExhausted]); // Added isExhausted dependency
 
     return (
         <mesh
@@ -111,10 +113,10 @@ const cardPropsAreEqual = (prevProps, nextProps) => {
     // Compare critical props that affect rendering
     if (prevProps.isFaceDown !== nextProps.isFaceDown) return false;
     if (prevProps.isHighlighted !== nextProps.isHighlighted) return false;
-    if (prevProps.highlightColor !== nextProps.highlightColor) return false; // if string
-    // if (prevProps.highlightColor.equals(nextProps.highlightColor)) // if THREE.Color
+    if (prevProps.highlightColor !== nextProps.highlightColor) return false;
     if (prevProps.isDamagedRecently !== nextProps.isDamagedRecently) return false;
     if (prevProps.scale !== nextProps.scale) return false;
+    if (prevProps.isExhausted !== nextProps.isExhausted) return false; // ADDED
 
     // Compare cardData (assuming it can be null or an object)
     if (!prevProps.cardData && !nextProps.cardData) { /* both null, same */ }
@@ -125,7 +127,7 @@ const cardPropsAreEqual = (prevProps, nextProps) => {
         if (prevProps.cardData.currentLife !== nextProps.cardData.currentLife) return false;
         if (prevProps.cardData.currentAttack !== nextProps.cardData.currentAttack) return false;
         if (prevProps.cardData.currentDefense !== nextProps.cardData.currentDefense) return false;
-        // Add other cardData fields if they affect visuals
+        if (prevProps.cardData.isExhausted !== nextProps.cardData.isExhausted) return false; // ADDED
     }
 
     // Compare position array (content, not reference)
@@ -135,9 +137,6 @@ const cardPropsAreEqual = (prevProps, nextProps) => {
             if (prevProps.position[i] !== nextProps.position[i]) return false;
         }
     } else if (prevProps.position || nextProps.position) return false; // one is null/undefined
-
-    // Compare rotation (if it changes dynamically and affects visuals)
-    // Similar logic as position for rotation array if used
 
     return true; // Props are considered equal
 };

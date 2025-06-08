@@ -19,6 +19,15 @@ public class Deck {
         }
     }
 
+    // Constructor: takes a list of CardInstances that will form the deck
+    public Deck(Deck other) {
+        if (other != null && other.cards != null) {
+            this.cards = new LinkedList<>(other.cards);
+        } else {
+            this.cards = new LinkedList<>();
+        }
+    }
+
     /**
      * Shuffles the cards in the deck.
      */

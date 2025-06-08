@@ -15,24 +15,25 @@ import {
   offOpenLobbiesUpdate,
   emitJoinLobby,
   onJoinLobbyFailed,
-  onGameStart,
   offJoinLobbyFailed,
-  offGameStart,
-  onGameStateUpdate,
-  offGameStateUpdate,
-  onActionError,
-  offActionError
+  onGameReady, // Changed from onGameStart
+  offGameReady, // Changed from offGameStart
+  onGameEvents,
+  offGameEvents,
+  onCommandRejected,
+  offCommandRejected,
 } from './services/socketService';
+import { initLogger, log } from './services/loggingService';
 import GameScreen from './components/GameScreen';
 
-const LobbyItem = ({ lobby, onJoin, isJoining, currentDisplayName }) => ( // Added currentDisplayName
+const LobbyItem = ({ lobby, onJoin, isJoining, currentDisplayName }) => (
   <div style={{ border: '1px solid #444', margin: '8px auto', padding: '10px', background: '#2e2e2e', color: '#eee', borderRadius: '5px', width: '80%', maxWidth: '400px' }}>
     <p>Lobby ID: <span style={{ color: '#7fceff' }}>{lobby.lobbyId.substring(0, 8)}...</span></p>
     <p>Created by: <span style={{ color: '#a5d6a7' }}>{lobby.creatorDisplayName}</span></p>
     <p>Players: {lobby.currentPlayerCount}/2</p>
     <button
       onClick={() => onJoin(lobby.lobbyId)}
-      disabled={isJoining || lobby.currentPlayerCount >= 2 || !currentDisplayName.trim()} // Disable if no display name
+      disabled={isJoining || lobby.currentPlayerCount >= 2 || !currentDisplayName.trim()}
       style={{ backgroundColor: (isJoining || lobby.currentPlayerCount >= 2 || !currentDisplayName.trim()) ? '#555' : '#007bff', color: 'white', padding: '8px 15px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
     >
       {isJoining ? 'Joining...' : 'Join Lobby'}
@@ -54,31 +55,33 @@ function App() {
 
   const [gameId, setGameId] = useState(null);
   const [playerId, setPlayerId] = useState(null);
-  const [gameState, setGameState] = useState(null);
-  const [actionErrorMsg, setActionErrorMsg] = useState('');
+  const [initialGameState, setInitialGameState] = useState(null);
+  const [eventBatch, setEventBatch] = useState(null); // New state for event batches
+  const [commandErrorMsg, setCommandErrorMsg] = useState('');
   const [isGameOver, setIsGameOver] = useState(false);
+  const [gameOverMessage, setGameOverMessage] = useState('');
 
   const resetGameRelatedState = useCallback(() => {
     setGameId(null);
     setPlayerId(null);
-    setGameState(null);
+    setInitialGameState(null);
+    setEventBatch(null);
     setIsInLobbyOrGame(false);
     setIsGameOver(false);
-    setActionErrorMsg('');
+    setCommandErrorMsg('');
+    setGameOverMessage('');
     if (getSocket() && getSocket().connected) {
       emitGetOpenLobbies();
     }
   }, []);
 
-
   const handleConnect = useCallback(() => {
     setIsConnected(true);
     const s = getSocket();
     if (s) setSocketId(s.id || null);
-    setServerMessage(''); setAppError(''); setActionErrorMsg('');
-    emitGetOpenLobbies(); // Fetch lobbies on fresh connect
-    // resetGameRelatedState(); // resetGameRelatedState is usually for after game ends or disconnect
-  }, []); // Removed resetGameRelatedState from here to avoid loop if it emits
+    setServerMessage(''); setAppError(''); setCommandErrorMsg('');
+    emitGetOpenLobbies();
+  }, []);
 
   const handleDisconnect = useCallback((reason) => {
     setIsConnected(false); setSocketId(null);
@@ -104,68 +107,51 @@ function App() {
     setAppError(errorMessage); setIsJoiningLobby(false);
   }, []);
 
-  const handleOpenLobbiesList = useCallback((lobbies) => { setOpenLobbies(lobbies || []); console.log("Lobbies list received:", lobbies) }, []);
-  const handleOpenLobbiesUpdate = useCallback((lobbies) => { setOpenLobbies(lobbies || []); console.log("Lobbies list updated:", lobbies) }, []);
+  const handleOpenLobbiesList = useCallback((lobbies) => setOpenLobbies(lobbies || []), []);
+  const handleOpenLobbiesUpdate = useCallback((lobbies) => setOpenLobbies(lobbies || []), []);
 
   const handleJoinLobbyFailed = useCallback((errorMessage) => {
     setAppError(errorMessage); setIsJoiningLobby(false);
   }, []);
 
-  const handleGameStart = useCallback((initialGameState) => {
-    setGameState(initialGameState);
-    setGameId(initialGameState.gameId);
-    if (initialGameState.viewingPlayerPerspectiveId) {
-      setPlayerId(initialGameState.viewingPlayerPerspectiveId);
-    } else {
-      console.error("Server did not provide viewingPlayerPerspectiveId in game_start!");
-      setAppError("Error starting game: Missing player perspective. Please try rejoining.");
-      resetGameRelatedState();
-      return;
-    }
+  const handleGameReady = useCallback((initialState) => {
+    // --- LOGGING ---
+    initLogger();
+    log('EVENT: Game is ready. Received initial state.', initialState);
+
+    setInitialGameState(initialState);
+    setGameId(initialState.gameId);
+    setPlayerId(initialState.viewingPlayerPerspectiveId);
     setIsInLobbyOrGame(true);
     setLobbyId(null);
     setAppError('');
-    setServerMessage(initialGameState.message || `Game ${initialGameState.gameId} started!`);
+    setServerMessage(initialState.message || `Game ${initialState.gameId} started!`);
     setIsJoiningLobby(false);
-    setActionErrorMsg('');
+    setCommandErrorMsg('');
     setIsGameOver(false);
-  }, [resetGameRelatedState]);
+  }, []);
 
-  const handleGameStateUpdate = useCallback((newGameState) => {
-    setGameState(newGameState);
-    if (newGameState.viewingPlayerPerspectiveId && (!playerId || playerId !== newGameState.viewingPlayerPerspectiveId)) {
-      setPlayerId(newGameState.viewingPlayerPerspectiveId);
-    }
-    if (newGameState.currentGameState && newGameState.currentGameState.includes("GAME_OVER")) {
-      console.log("GAME OVER from GameStateUpdate:", newGameState.message);
-      setIsGameOver(true);
-      setServerMessage(newGameState.message || "The game has ended.");
-    } else {
-      setIsGameOver(false);
-    }
-    setActionErrorMsg('');
-    if (newGameState.message) { // Prioritize new server message
-      setServerMessage(newGameState.message);
-    }
-  }, [playerId]);
-
-  const handleActionError = useCallback((errorData) => {
-    console.error('Game Action Error from server:', errorData);
-    setActionErrorMsg(errorData.message || "An unknown game action error occurred.");
-    if (errorData.currentGameState && errorData.currentGameState.includes("GAME_OVER")) {
-      setIsGameOver(true);
-      setServerMessage(errorData.message || "The game ended due to an error or specific condition.");
-      if (errorData.player1State && errorData.player2State) {
-        setGameState(errorData);
+  const handleGameEvents = useCallback((events) => {
+    if (Array.isArray(events)) {
+      setEventBatch(events); // Pass the whole batch to GameScreen
+      // Check for game over event within the batch
+      const gameOverEvent = events.find(e => e.eventType === 'GAME_OVER');
+      if (gameOverEvent) {
+        setIsGameOver(true);
+        setGameOverMessage(gameOverEvent.reason || "The game has ended.");
       }
     }
+  }, []);
+
+  const handleCommandRejected = useCallback((message) => {
+    setCommandErrorMsg(message || "Your action was rejected by the server.");
   }, []);
 
   useEffect(() => {
     const currentSocket = connectSocket();
     if (currentSocket) {
-      setIsConnected(currentSocket.connected);
-      if (currentSocket.connected && !socketId) { // Set socketId if connected and not already set
+      if (currentSocket.connected && !socketId) {
+        setIsConnected(true);
         setSocketId(currentSocket.id || null);
         emitGetOpenLobbies();
       }
@@ -176,30 +162,42 @@ function App() {
       currentSocket.on('connection_ack', handleConnectionAck);
       onLobbyCreated(handleLobbyCreated); onLobbyError(handleLobbyError);
       onOpenLobbiesList(handleOpenLobbiesList); onOpenLobbiesUpdate(handleOpenLobbiesUpdate);
-      onJoinLobbyFailed(handleJoinLobbyFailed); onGameStart(handleGameStart);
-      onGameStateUpdate(handleGameStateUpdate); onActionError(handleActionError);
+      onJoinLobbyFailed(handleJoinLobbyFailed);
+      onGameReady(handleGameReady);
+      onGameEvents(handleGameEvents);
+      onCommandRejected(handleCommandRejected);
     }
     return () => {
       if (currentSocket) {
-        currentSocket.off('connect', handleConnect); currentSocket.off('disconnect', handleDisconnect);
-        currentSocket.off('connect_error', handleConnectError); currentSocket.off('connection_ack', handleConnectionAck);
-        offLobbyCreated(); offLobbyError(); offOpenLobbiesList(); offOpenLobbiesUpdate();
-        offJoinLobbyFailed(); offGameStart(); offGameStateUpdate(); offActionError();
+        currentSocket.off('connect', handleConnect);
+        currentSocket.off('disconnect', handleDisconnect);
+        currentSocket.off('connect_error', handleConnectError);
+        currentSocket.off('connection_ack', handleConnectionAck);
+        offLobbyCreated(); offLobbyError();
+        offOpenLobbiesList(); offOpenLobbiesUpdate();
+        offJoinLobbyFailed();
+        offGameReady();
+        offGameEvents();
+        offCommandRejected();
       }
     };
-  }, [handleConnect, handleDisconnect, handleConnectError, handleConnectionAck,
+  }, [
+    socketId, handleConnect, handleDisconnect, handleConnectError, handleConnectionAck,
     handleLobbyCreated, handleLobbyError, handleOpenLobbiesList, handleOpenLobbiesUpdate,
-    handleJoinLobbyFailed, handleGameStart, handleGameStateUpdate, handleActionError, socketId]); // Added socketId
+    handleJoinLobbyFailed, handleGameReady, handleGameEvents, handleCommandRejected
+  ]);
 
   const handleCreateLobby = () => {
     if (!displayName.trim()) { setAppError('Please enter a display name.'); return; }
     if (!isConnected) { setAppError('Not connected to the server.'); return; }
+    log('ACTION: Create Lobby', { displayName }); // <-- ADD THIS LOG
     setAppError(''); emitCreateLobby({ displayName });
   };
 
   const handleJoinLobby = (lobbyIdToJoin) => {
     if (!displayName.trim()) { setAppError('Please enter a display name to join a lobby.'); return; }
     if (!isConnected) { setAppError('Not connected to the server.'); return; }
+    log('ACTION: Join Lobby', { lobbyId: lobbyIdToJoin, displayName }); // <-- ADD THIS LOG
     setAppError(''); setIsJoiningLobby(true); emitJoinLobby({ lobbyId: lobbyIdToJoin, displayName });
   };
 
@@ -208,29 +206,25 @@ function App() {
     setServerMessage("Returned to lobby selection.");
   };
 
-  if (!isConnected && !serverMessage.includes("Connection Error")) { // Show connecting unless there's a persistent error
+  if (!isConnected) {
     return (
       <div className="App" style={{ color: '#ddd', textAlign: 'center', paddingTop: '50px' }}>
-        <p>Connecting to CapyCards server...</p>
-      </div>
-    );
-  }
-  if (!isConnected && serverMessage.includes("Connection Error")) {
-    return (
-      <div className="App" style={{ color: '#ddd', textAlign: 'center', paddingTop: '50px' }}>
-        <p style={{ color: 'red' }}>{serverMessage}</p>
-        <p>Please ensure the server is running and refresh the page.</p>
+        <p>{serverMessage.includes("Connection Error") ? serverMessage : "Connecting to CapyCards server..."}</p>
+        {serverMessage.includes("Connection Error") && <p>Please ensure the server is running and refresh the page.</p>}
       </div>
     );
   }
 
-
-  if (isInLobbyOrGame && gameId && playerId && gameState && !isGameOver) {
-    console.log(`[App.jsx rendering GameScreen] playerId: ${playerId}, gameId: ${gameId}`);
+  if (isInLobbyOrGame && gameId && playerId && initialGameState && !isGameOver) {
     return (
       <div className="App game-active" style={{ width: '100vw', height: '100vh', padding: 0, margin: 0, overflow: 'hidden', position: 'relative', background: '#1a1d21' }}>
-        {actionErrorMsg && !isGameOver && <p className="app-level-error-bar">Action Error: {actionErrorMsg}</p>}
-        <GameScreen gameState={gameState} playerId={playerId} gameId={gameId} />
+        {commandErrorMsg && <p className="app-level-error-bar">Action Error: {commandErrorMsg}</p>}
+        <GameScreen
+          initialGameState={initialGameState}
+          playerId={playerId}
+          gameId={gameId}
+          eventBatch={eventBatch}
+        />
       </div>
     );
   }
@@ -240,22 +234,9 @@ function App() {
       <div className="App">
         <div className="game-over-screen">
           <h2>Game Over!</h2>
-          <p>{serverMessage || gameState?.message || "The game has concluded."}</p>
+          <p>{gameOverMessage}</p>
           <button onClick={handleReturnToLobby} className="action-button">Return to Lobbies</button>
         </div>
-      </div>
-    );
-  }
-
-  if (isInLobbyOrGame && lobbyId) {
-    return (
-      <div className="App">
-        <header className="App-header"><h1>CapyCards</h1></header>
-        <h2>In Your Lobby: <span style={{ color: '#7fceff' }}>{lobbyId.substring(0, 8)}...</span></h2>
-        <p>Your Display Name: <span style={{ color: '#a5d6a7' }}>{displayName}</span></p>
-        <p style={{ color: '#ffeb3b', fontStyle: 'italic' }}>Waiting for an opponent...</p>
-        {serverMessage && !serverMessage.includes("Lobby created") && <p>Server: {serverMessage}</p>}
-        {appError && <p style={{ color: 'red' }}>Error: {appError}</p>}
       </div>
     );
   }
@@ -263,40 +244,47 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>CapyCards (3D R3F Test)</h1>
-        <p style={{ fontSize: '0.8em' }}>Socket: {isConnected ? <span style={{ color: 'lightgreen' }}>Connected (ID: {socketId || 'N/A'})</span> : <span style={{ color: 'red' }}>Disconnected</span>}</p>
+        <h1>CapyCards</h1>
+        <p style={{ fontSize: '0.8em' }}>Socket: <span style={{ color: 'lightgreen' }}>Connected (ID: {socketId || 'N/A'})</span></p>
         {serverMessage && <p style={{ fontSize: '0.9em', fontStyle: 'italic' }}>Server: {serverMessage}</p>}
         {appError && <p style={{ color: 'red' }}>Error: {appError}</p>}
       </header>
       <main>
-        <div style={{ marginBottom: '20px', padding: '15px', background: '#2a2a2e', borderRadius: '8px' }}>
-          <input
-            type="text"
-            placeholder="Enter your display name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            style={{ padding: '10px', marginRight: '10px', borderRadius: '4px', border: '1px solid #555', background: '#333', color: 'white' }}
-          />
-          <button
-            onClick={handleCreateLobby}
-            disabled={!displayName.trim() || isJoiningLobby}
-            style={{ backgroundColor: (!displayName.trim() || isJoiningLobby) ? '#555' : '#007bff', color: 'white', padding: '10px 15px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-          >
-            Create Lobby
-          </button>
-        </div>
-        <hr style={{ borderColor: '#444' }} />
-        <h2>Open Lobbies</h2>
-        <button
-          onClick={() => { setAppError(''); if (isConnected) emitGetOpenLobbies(); else setAppError("Not connected to server."); }}
-          disabled={isJoiningLobby || !isConnected}
-          style={{ marginBottom: '10px', backgroundColor: (isJoiningLobby || !isConnected) ? '#555' : '#6c757d', color: 'white', padding: '8px 12px', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-        >
-          Refresh Lobbies
-        </button>
-        {openLobbies.length === 0 ? <p>No open lobbies. Create one or refresh!</p> : openLobbies.map((lobby) => (
-          <LobbyItem key={lobby.lobbyId} lobby={lobby} onJoin={handleJoinLobby} isJoining={isJoiningLobby} currentDisplayName={displayName} />
-        ))}
+        {isInLobbyOrGame && lobbyId ? (
+          <div>
+            <h2>In Your Lobby: <span style={{ color: '#7fceff' }}>{lobbyId.substring(0, 8)}...</span></h2>
+            <p>Your Display Name: <span style={{ color: '#a5d6a7' }}>{displayName}</span></p>
+            <p style={{ color: '#ffeb3b', fontStyle: 'italic' }}>Waiting for an opponent...</p>
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: '20px', padding: '15px', background: '#2a2a2e', borderRadius: '8px' }}>
+              <input
+                type="text"
+                placeholder="Enter your display name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+              <button
+                onClick={handleCreateLobby}
+                disabled={!displayName.trim() || isJoiningLobby}
+              >
+                Create Lobby
+              </button>
+            </div>
+            <hr style={{ borderColor: '#444' }} />
+            <h2>Open Lobbies</h2>
+            <button
+              onClick={() => { setAppError(''); if (isConnected) emitGetOpenLobbies(); else setAppError("Not connected to server."); }}
+              disabled={isJoiningLobby || !isConnected}
+            >
+              Refresh Lobbies
+            </button>
+            {openLobbies.length === 0 ? <p>No open lobbies. Create one or refresh!</p> : openLobbies.map((lobby) => (
+              <LobbyItem key={lobby.lobbyId} lobby={lobby} onJoin={handleJoinLobby} isJoining={isJoiningLobby} currentDisplayName={displayName} />
+            ))}
+          </>
+        )}
       </main>
     </div>
   );

@@ -64,6 +64,7 @@ public class GameStateResponse {
         dto.setDeckSize(player.getDeck().size());
         dto.setDiscardPileSize(player.getDiscardPile().size());
         dto.setHandSize(player.getHand().size());
+        dto.setAttacksDeclaredThisTurn(player.getAttacksDeclaredThisTurn());
 
         // Map Hand
         if (isThisPlayerTheViewer) { // Only send full hand details to the owner

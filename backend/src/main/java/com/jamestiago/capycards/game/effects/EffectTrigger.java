@@ -11,9 +11,8 @@ public enum EffectTrigger {
     END_OF_TURN_SELF, // At the end of this card's controller's turn
     START_OF_TURN_SELF, // At the start of this card's controller's turn
     ACTIVATED, // Player must choose to activate this effect
-
-    // New trigger for observing other cards' deaths
     ON_DEATH_OF_ANY, // When any card on the field is destroyed
+    ON_DAMAGE_TAKEN_OF_ANY,
 
     // Special trigger checked at specific moments, not in the main trigger loop
     CONTINUOUS_DEFENSIVE, // Checked by EffectProcessor.applyDamage before damage is calculated

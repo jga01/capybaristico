@@ -47,6 +47,12 @@ export const PARTICLE_CONFIGS = {
     size: { min: 0.05, max: 0.1 }, radius: { min: 0.2, max: 0.5 },
     color: '#7fdbff', opacity: 1, depthWrite: false,
   },
+  // A quick flash of grey/white particles, like a shield deflecting a blow.
+  BLOCK: {
+    shape: 'sphere', count: 50, lifetime: { min: 0.3, max: 0.6 },
+    size: { min: 0.05, max: 0.1 }, radius: { min: 0.4, max: 0.7 },
+    color: '#d3d3d3', opacity: 0.9, depthWrite: false,
+  },
   // Sinking, heavy feel. Renders on top of cards.
   DEBUFF: {
     shape: 'fountain', count: 60, lifetime: { min: 1.0, max: 1.5 },

@@ -17,6 +17,7 @@
     "@react-spring/web": "^10.0.1",
     "@react-three/drei": "^10.1.2",
     "@react-three/fiber": "^9.1.2",
+    "immer": "^10.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "socket.io-client": "^4.8.1",

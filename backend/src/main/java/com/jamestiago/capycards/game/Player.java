@@ -4,13 +4,12 @@ import com.jamestiago.capycards.model.Card;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects; // For Objects.nonNull
+import java.util.Objects;
 import java.util.UUID;
 
 public class Player {
     private final String playerId;
     private String displayName;
-
     private Deck deck;
     private List<CardInstance> hand;
     private List<CardInstance> field;
@@ -18,10 +17,13 @@ public class Player {
 
     public static final int MAX_HAND_SIZE = 5;
     public static final int MAX_FIELD_SIZE = 4;
-    public static final int MAX_ATTACKS_PER_TURN = 2; // Define rule here
+    public static final int MAX_ATTACKS_PER_TURN = 2;
 
     private int attacksDeclaredThisTurn = 0;
 
+    /**
+     * Original constructor for creating a new player at the start of a game.
+     */
     public Player(String displayName, List<Card> cardDefinitionsForDeck) {
         this.playerId = UUID.randomUUID().toString();
         this.displayName = displayName;
@@ -38,47 +40,53 @@ public class Player {
         this.discardPile = new ArrayList<>();
     }
 
-    public boolean drawCard() {
+    /**
+     * Copy constructor for creating a deep copy for simulations.
+     */
+    public Player(Player other) {
+        this.playerId = other.playerId;
+        this.displayName = other.displayName;
+        this.attacksDeclaredThisTurn = other.attacksDeclaredThisTurn;
+
+        // Deep copy mutable collections
+        this.deck = new Deck(other.deck); // Deck also needs a copy constructor
+        this.hand = new ArrayList<>(other.hand);
+        this.field = new ArrayList<>(other.field);
+        this.discardPile = new ArrayList<>(other.discardPile);
+    }
+
+    // Returns the drawn card, or null if deck is empty
+    public CardInstance drawCard() {
         if (deck.isEmpty()) {
-            return false;
+            return null;
         }
         CardInstance drawnCard = deck.draw();
         if (drawnCard != null) {
             hand.add(drawnCard);
-            return true;
         }
-        return false;
+        return drawnCard;
     }
 
-    public boolean drawUntilHandIsFull(int targetHandSize) {
-        int cardsToDraw = targetHandSize - hand.size();
-        if (cardsToDraw <= 0) {
-            return true;
-        }
-
-        for (int i = 0; i < cardsToDraw; i++) {
-            if (hand.size() >= targetHandSize)
-                break;
+    public void initialDraw(int targetHandSize) {
+        for (int i = 0; i < targetHandSize; i++) {
             if (deck.isEmpty())
-                return false;
-            if (!drawCard())
-                return false;
+                break;
+            drawCard();
         }
-
-        return hand.size() >= targetHandSize || (cardsToDraw > 0 && deck.isEmpty());
     }
 
-    public boolean playCardFromHandToField(int handIndex, int fieldSlotIndex) {
+    // Returns the played card instance for event generation
+    public CardInstance playCardFromHandToField(int handIndex, int fieldSlotIndex) {
         if (handIndex < 0 || handIndex >= hand.size())
-            return false;
+            return null;
         if (fieldSlotIndex < 0 || fieldSlotIndex >= MAX_FIELD_SIZE)
-            return false;
+            return null;
         if (field.get(fieldSlotIndex) != null)
-            return false;
+            return null;
 
         CardInstance cardToPlay = hand.remove(handIndex);
         field.set(fieldSlotIndex, cardToPlay);
-        return true;
+        return cardToPlay;
     }
 
     public void discardDownToMaxHandSize() {
@@ -109,23 +117,25 @@ public class Player {
         for (CardInstance card : field) {
             if (card != null) {
                 card.setExhausted(false);
-                card.resetTurnSpecificState(); // Updated method call
-
-                // Clear "1 turn" status effects at the start of the owner's turn
+                card.resetTurnSpecificState();
                 card.removeEffectFlag("status_silenced");
             }
         }
     }
 
-    public int findEmptyFieldSlot() {
-        for (int i = 0; i < MAX_FIELD_SIZE; i++) {
-            if (field.get(i) == null) {
-                return i;
+    public CardInstance removeCardFromFieldByInstanceId(String instanceId) {
+        for (int i = 0; i < field.size(); i++) {
+            CardInstance card = field.get(i);
+            if (card != null && card.getInstanceId().equals(instanceId)) {
+                field.set(i, null);
+                discardPile.add(card);
+                return card;
             }
         }
-        return -1; // No empty slot
+        return null;
     }
 
+    // Getters
     public String getPlayerId() {
         return playerId;
     }
@@ -143,39 +153,21 @@ public class Player {
     }
 
     public List<CardInstance> getField() {
-        return Collections.unmodifiableList(new ArrayList<>(field));
-    }
-
-    public List<CardInstance> getFieldInternal() {
-        return this.field;
+        return Collections.unmodifiableList(field);
     }
 
     public List<CardInstance> getDiscardPile() {
         return Collections.unmodifiableList(discardPile);
     }
 
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
+    // Internal mutable getters for engine/game state manipulation.
+    // Changed to public to allow access from the 'effects' package.
+    public List<CardInstance> getHandInternal() {
+        return this.hand;
     }
 
-    public boolean isFieldEmpty() {
-        return field.stream().allMatch(Objects::isNull);
-    }
-
-    public CardInstance removeCardFromField(int fieldSlotIndex) {
-        if (fieldSlotIndex >= 0 && fieldSlotIndex < MAX_FIELD_SIZE) {
-            CardInstance card = field.get(fieldSlotIndex);
-            if (card != null) {
-                field.set(fieldSlotIndex, null);
-                return card;
-            }
-        }
-        return null;
-    }
-
-    public void addCardToDiscardPile(CardInstance card) {
-        if (card != null)
-            this.discardPile.add(card);
+    public List<CardInstance> getFieldInternal() {
+        return this.field;
     }
 
     @Override
