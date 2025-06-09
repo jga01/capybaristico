@@ -1,5 +1,6 @@
 package com.jamestiago.capycards.game;
 
+import com.jamestiago.capycards.model.Card;
 import com.jamestiago.capycards.game.events.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class Game {
     private static final Logger logger = LoggerFactory.getLogger(Game.class);
@@ -17,6 +20,9 @@ public class Game {
     private GameState gameState;
     private int turnNumber;
     private final Map<String, Object> gameFlags = new ConcurrentHashMap<>();
+    private transient final Map<String, Card> allCardDefinitions;
+
+    private final Map<String, CardInstance> cardsInLimbo = new ConcurrentHashMap<>();
 
     public enum GameState {
         WAITING_FOR_PLAYERS,
@@ -31,12 +37,18 @@ public class Game {
     /**
      * Original constructor for creating a new game instance.
      */
-    public Game(Player p1, Player p2) {
+    public Game(Player p1, Player p2, List<Card> allCardDefinitions) {
         this.gameId = UUID.randomUUID().toString();
         this.player1 = p1;
         this.player2 = p2;
         this.gameState = GameState.WAITING_FOR_PLAYERS;
         this.turnNumber = 0;
+        if (allCardDefinitions != null) {
+            this.allCardDefinitions = allCardDefinitions.stream()
+                    .collect(Collectors.toConcurrentMap(Card::getCardId, Function.identity()));
+        } else {
+            this.allCardDefinitions = new ConcurrentHashMap<>();
+        }
         logger.trace("[{}] New Game instance created. P1: {}, P2: {}", gameId, p1.getDisplayName(),
                 p2.getDisplayName());
     }
@@ -48,6 +60,9 @@ public class Game {
         this.gameId = other.gameId;
         this.turnNumber = other.turnNumber;
         this.gameState = other.gameState;
+        this.allCardDefinitions = other.allCardDefinitions;
+
+        other.cardsInLimbo.forEach((id, card) -> this.cardsInLimbo.put(id, new CardInstance(card)));
 
         // Use the Player copy constructor
         this.player1 = new Player(other.player1);
@@ -66,6 +81,16 @@ public class Game {
         this.gameFlags.putAll(other.gameFlags);
 
         logger.trace("[{}] Cloned game instance for simulation.", this.gameId);
+    }
+
+    public void addCardToLimbo(CardInstance card) {
+        if (card != null) {
+            this.cardsInLimbo.put(card.getInstanceId(), card);
+        }
+    }
+
+    public CardInstance removeCardFromLimbo(String instanceId) {
+        return this.cardsInLimbo.remove(instanceId);
     }
 
     // The core method for mutating game state. It trusts the event completely.
@@ -104,6 +129,10 @@ public class Game {
             applyCardFlagChanged(e);
         } else if (event instanceof CardTransformedEvent e) {
             applyCardTransformed(e);
+        } else if (event instanceof CardVanishedEvent e) {
+            applyCardVanished(e);
+        } else if (event instanceof CardReappearedEvent e) {
+            applyCardReappeared(e);
         }
         // Events like GameLogMessageEvent or AbilityActivatedEvent don't mutate state,
         // so no handler needed.
@@ -111,6 +140,32 @@ public class Game {
         logger.trace("[{}] FINISHED applying event: {}. Current turn: {}, Current player: {}, Game state: {}", gameId,
                 event.getClass().getSimpleName(), this.turnNumber,
                 this.currentPlayer != null ? this.currentPlayer.getDisplayName() : "None", this.gameState);
+    }
+
+    private void applyCardVanished(CardVanishedEvent event) {
+        Player owner = getPlayerById(event.ownerPlayerId);
+        if (owner == null)
+            return;
+
+        CardInstance card = owner.removeCardFromFieldByInstanceId(event.instanceId);
+        if (card != null) {
+            // We move it to limbo instead of the discard pile.
+            addCardToLimbo(card);
+        }
+    }
+
+    private void applyCardReappeared(CardReappearedEvent event) {
+        Player owner = getPlayerById(event.ownerPlayerId);
+        if (owner == null)
+            return;
+
+        CardInstance card = removeCardFromLimbo(event.card.getInstanceId());
+        if (card != null) {
+            // Refresh its state and place it on the field
+            card.setExhausted(true);
+            card.resetTurnSpecificState();
+            owner.getFieldInternal().set(event.toFieldSlot, card);
+        }
     }
 
     private void applyGameStarted(GameStartedEvent event) {
@@ -176,6 +231,7 @@ public class Game {
     private void applyCombatDamageDealt(CombatDamageDealtEvent event) {
         CardInstance defender = findCardInstanceFromAnyField(event.defenderInstanceId);
         if (defender != null) {
+            // The event contains the final life total, so we just set it.
             defender.setCurrentLife(event.defenderLifeAfter);
         }
     }
@@ -194,6 +250,7 @@ public class Game {
     private void applyCardHealed(CardHealedEvent event) {
         CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
         if (card != null) {
+            // The event now contains the correct final life total.
             card.setCurrentLife(event.lifeAfter);
         }
     }
@@ -274,9 +331,20 @@ public class Game {
     }
 
     private void applyCardTransformed(CardTransformedEvent event) {
-        Player owner = getOwnerOfCardInstance(findCardInstanceFromAnyField(event.originalInstanceId));
+        CardInstance originalCard = findCardInstanceFromAnyField(event.originalInstanceId);
+        if (originalCard == null)
+            return;
+
+        Player owner = getOwnerOfCardInstance(originalCard);
         if (owner == null)
             return;
+
+        // Find the full definition of the new card form
+        Card newCardDefinition = allCardDefinitions.get(event.newCardDto.getCardId());
+        if (newCardDefinition == null) {
+            logger.error("TRANSFORM FAILED: Card definition for '{}' not found.", event.newCardDto.getCardId());
+            return;
+        }
 
         // Find the slot of the original card
         int slotIndex = -1;
@@ -289,19 +357,14 @@ public class Game {
         }
 
         if (slotIndex != -1) {
-            // Create a new CardInstance from the DTO's definition
-            CardInstance newCardState = new CardInstance(new com.jamestiago.capycards.model.Card(
-                    event.newCardDto.getCardId(),
-                    event.newCardDto.getName(),
-                    event.newCardDto.getType(),
-                    event.newCardDto.getCurrentLife(), // Use current as new base
-                    event.newCardDto.getCurrentAttack(),
-                    event.newCardDto.getCurrentDefense(),
-                    event.newCardDto.getEffectText(),
-                    null, // Effect config will be loaded from DB, not from DTO
-                    event.newCardDto.getRarity(),
-                    event.newCardDto.getImageUrl(),
-                    null));
+            // Create a new CardInstance from the DEFINITION
+            CardInstance newCardState = new CardInstance(newCardDefinition);
+
+            // Carry over relevant state from the DTO in the event
+            // This allows effects to set the transformed card's starting health
+            newCardState.setCurrentLife(event.newCardDto.getCurrentLife());
+            newCardState.setExhausted(true); // Transformed cards usually suffer from summoning sickness
+
             // Overwrite the card in the field slot
             owner.getFieldInternal().set(slotIndex, newCardState);
         }
@@ -319,6 +382,11 @@ public class Game {
     }
 
     // --- UTILITY METHODS ---
+
+    // <<< ADD THIS GETTER METHOD >>>
+    public Map<String, CardInstance> getCardsInLimbo() {
+        return cardsInLimbo;
+    }
 
     public CardInstance findCardInstanceFromAnyField(String instanceId) {
         if (instanceId == null)

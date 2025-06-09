@@ -1,30 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { produce } from 'immer';
 import CanvasWrapper from './ThreeCanvas';
+import GameLog from './GameLog';
 import { emitGameCommand } from '../services/socketService';
 import { log, downloadLogs } from '../services/loggingService';
-import { CARD_ABILITIES, MAX_ATTACKS_PER_TURN } from '../constants';
+import { MAX_ATTACKS_PER_TURN } from '../constants';
 import './HandCard.css';
 import MagnifiedCardView from './MagnifiedCardView';
 
-// Sub-component for rendering a card in the 2D HTML hand UI
 const HTMLHandCard = ({ cardData, onClick, onMagnify, isSelected }) => (
     <div
         className={`html-hand-card ${isSelected ? 'selected' : ''}`}
         onClick={() => onClick(cardData)}
-        onContextMenu={(e) => { e.preventDefault(); onMagnify(cardData); }}
-        title={`${cardData.name}\nType: ${cardData.type || 'N/A'}\nATK: ${cardData.currentAttack} / DEF: ${cardData.currentDefense} / LIFE: ${cardData.currentLife}\nEffect: ${cardData.effectText?.substring(0, 100)}...`}
+        onContextMenu={(e) => { e.preventDefault(); onMagnify(cardData); }} // Allow right-click to magnify
+        title={`${cardData.name}\nL:${cardData.currentLife} A:${cardData.currentAttack} D:${cardData.currentDefense}\nEffect: ${cardData.effectText?.substring(0, 100)}...`} // Tooltip remains useful
     >
         <img src={cardData.imageUrl ? (cardData.imageUrl.startsWith('/') ? cardData.imageUrl : `/assets/cards_images/${cardData.imageUrl}`) : '/assets/cards_images/back.png'} alt={cardData.name} />
-        <div style={{ position: 'absolute', bottom: '2px', left: '2px', right: '2px', backgroundColor: 'rgba(0,0,0,0.6)', color: 'white', fontSize: '10px', textAlign: 'center', padding: '1px 0', borderRadius: '0 0 3px 3px' }}>
-            L:{cardData.currentLife} A:{cardData.currentAttack} D:{cardData.currentDefense}
-        </div>
     </div>
 );
 
 
 const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
-    // === Local Game State & UI State ===
     const [localGameState, setLocalGameState] = useState(initialGameState);
     const [selectedHandCardInfo, setSelectedHandCardInfo] = useState(null);
     const [selectedAttackerInfo, setSelectedAttackerInfo] = useState(null);
@@ -33,68 +29,70 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
     const [isTargetingMode, setIsTargetingMode] = useState(false);
     const [feedbackMessage, setFeedbackMessage] = useState('Game started!');
     const [magnifiedCard, setMagnifiedCard] = useState(null);
-
-    // === Visual Effect System State ===
+    const [showTurnBanner, setShowTurnBanner] = useState(false);
     const [effectQueue, setEffectQueue] = useState([]);
     const [currentEffect, setCurrentEffect] = useState(null);
+    const [attackAnimation, setAttackAnimation] = useState(null);
 
     const isMyTurn = localGameState.currentPlayerId === playerId;
     const canvasRef = useRef();
 
-
-    // --- Core System: Event Processing and State Application ---
-
     useEffect(() => {
         if (!eventBatch || eventBatch.length === 0) return;
 
-        log('PROCESSING EVENT BATCH', { count: eventBatch.length, events: eventBatch });
-        log('STATE BEFORE BATCH', localGameState);
+        const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
+        if (turnStartEvent) {
+            setShowTurnBanner(true);
+        }
 
         const visualEffects = [];
-
         const nextState = produce(localGameState, draftState => {
-            eventBatch.forEach((event, index) => {
-                // --- ENHANCED LOGGING START ---
-                console.groupCollapsed(`  Applying event ${index + 1}: ${event.eventType}`);
-                console.log(event);
-                // --- ENHANCED LOGGING END ---
+            eventBatch.forEach(event => {
                 applyEventToState(draftState, event, playerId);
-                const effect = translateEventToEffect(event, playerId);
-                if (effect) visualEffects.push(effect);
-                console.groupEnd();
+                const effect = translateEventToEffect(draftState, event, playerId);
+                if (effect) {
+                    if (Array.isArray(effect)) visualEffects.push(...effect);
+                    else visualEffects.push(effect);
+                }
             });
         });
 
-        log('STATE AFTER BATCH', nextState);
-        log('GENERATED VISUAL EFFECTS', visualEffects);
-
         setLocalGameState(nextState);
         setEffectQueue(prev => [...prev, ...visualEffects]);
+    }, [eventBatch, playerId]);
 
-    }, [eventBatch, playerId]); // Added localGameState to dependencies
-
-
-    /**
-     * The Effect Queue Manager.
-     * Watches the queue and feeds effects to the renderer one by one.
-     */
     useEffect(() => {
         if (!currentEffect && effectQueue.length > 0) {
             const nextEffect = effectQueue[0];
+
+            // --- MODIFIED: Handle silent cleanup events immediately ---
+            if (nextEffect.type === 'FINAL_CLEANUP') {
+                setLocalGameState(produce(draft => {
+                    applyEventToState(draft, nextEffect, playerId);
+                }));
+                // Skip setting it as a current effect and move to the next one
+                setEffectQueue(prev => prev.slice(1));
+                return;
+            }
+
             setCurrentEffect(nextEffect);
+            if (nextEffect.type === 'ATTACK_LUNGE') {
+                setAttackAnimation({ attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId });
+                setTimeout(() => {
+                    setAttackAnimation(null);
+                    handleEffectComplete();
+                }, 1000);
+            }
         }
-    }, [effectQueue, currentEffect]);
+    }, [effectQueue, currentEffect, playerId]);
 
     const handleEffectComplete = useCallback(() => {
-        // --- LOGGING ---
-        log('VISUAL EFFECT COMPLETE', currentEffect);
         setCurrentEffect(null);
         setEffectQueue(prev => prev.slice(1));
-    }, [currentEffect]);
+    }, []);
 
-
-    // --- User Interaction Handlers (locked during effects) ---
-    const isInputLocked = () => !!currentEffect;
+    // --- MODIFIED: More robust input lock checks the entire queue ---
+    const isInputLocked = () => effectQueue.length > 0 || !!currentEffect || !!attackAnimation;
 
     const clearSelections = useCallback(() => {
         setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
@@ -105,17 +103,10 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
         setIsTargetingMode(false);
     }, [isMyTurn]);
 
-    const handleTableClick = () => {
-        if (isInputLocked()) return;
-        log('ACTION: Clicked table (clear selections)'); // <-- LOG
-        clearSelections();
-    };
+    const handleTableClick = () => { if (!isInputLocked()) clearSelections(); };
 
     const handleHTMLCardClickInHand = (cardData) => {
         if (isInputLocked() || !isMyTurn) return;
-        // --- LOGGING ---
-        log('ACTION: Clicked hand card', { cardName: cardData.name, instanceId: cardData.instanceId });
-
         if (selectedAttackerInfo || selectedAbilitySourceInfo) {
             setFeedbackMessage("Another action is pending. Cancel it first.");
             return;
@@ -130,47 +121,32 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
 
     const handleEmptyFieldSlotClick = (ownerPlayerId, fieldSlotIndex) => {
         if (isInputLocked() || !isMyTurn || !selectedHandCardInfo || ownerPlayerId !== playerId) return;
-
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
         const handCardIndex = viewingPlayer.hand.findIndex(c => c.instanceId === selectedHandCardInfo.instanceId);
-
         if (handCardIndex === -1) {
             setFeedbackMessage("Error: Card not found in hand.");
-            // --- LOGGING ---
-            log('ERROR: Attempted to play a card not found in hand.', { selected: selectedHandCardInfo, currentHand: viewingPlayer.hand });
             clearSelections();
             return;
         }
-
-        // --- LOGGING ---
-        log('ACTION: Play card to empty slot', { cardName: selectedHandCardInfo.cardData.name, handIndex: handCardIndex, fieldSlot: fieldSlotIndex });
-
         emitGameCommand({
-            gameId,
-            playerId,
-            commandType: 'PLAY_CARD',
-            handCardIndex,
-            targetFieldSlot: fieldSlotIndex
+            gameId, playerId, commandType: 'PLAY_CARD',
+            handCardIndex, targetFieldSlot: fieldSlotIndex
         });
         clearSelections();
     };
 
     const handleCardClickOnField = (cardData, mesh, ownerId, fieldIndex) => {
-        log('ACTION: Clicked field card', { cardName: cardData?.name, ownerId, fieldIndex, isTargetingMode, inputLocked: isInputLocked() });
-
-        if (isInputLocked()) {
-            setFeedbackMessage("Resolving effects...");
-            return;
-        }
-        if (!isMyTurn || !cardData) return;
-
+        if (isInputLocked() || !isMyTurn || !cardData) return;
         const isOwnCard = ownerId === playerId;
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
-        const attacksMadeThisTurn = viewingPlayer.attacksDeclaredThisTurn;
 
+        // --- TARGETING LOGIC ---
         if (isTargetingMode) {
             if (selectedAttackerInfo) {
-                if (isOwnCard) { setFeedbackMessage("Cannot attack your own card."); return; }
+                if (isOwnCard) {
+                    setFeedbackMessage("Cannot attack your own card.");
+                    return;
+                }
                 emitGameCommand({
                     gameId, playerId, commandType: 'ATTACK',
                     attackerFieldIndex: selectedAttackerInfo.fieldIndex,
@@ -188,34 +164,46 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
             return;
         }
 
+        // --- SELECTION LOGIC ---
         if (isOwnCard) {
             clearSelections();
 
             if (cardData.isExhausted) {
-                setFeedbackMessage(`${cardData.name} is exhausted and cannot attack or use abilities this turn.`);
+                setFeedbackMessage(`${cardData.name} is exhausted.`);
                 return;
             }
 
-            if (CARD_ABILITIES[cardData.cardId]) {
-                setSelectedAbilitySourceInfo({ instanceId: cardData.instanceId, cardData, fieldIndex });
-                setFeedbackMessage(`Selected ${cardData.name} for ability.`);
-            } else if (attacksMadeThisTurn < MAX_ATTACKS_PER_TURN) {
+            const canAttack = viewingPlayer.attacksDeclaredThisTurn < MAX_ATTACKS_PER_TURN;
+            const hasAbilities = cardData.abilities && cardData.abilities.length > 0;
+
+            if (canAttack) {
                 setSelectedAttackerInfo({ instanceId: cardData.instanceId, cardData, fieldIndex });
+                setFeedbackMessage(`Selected ${cardData.name} to attack. Choose a target.`);
                 setIsTargetingMode(true);
-                setFeedbackMessage(`Selected ${cardData.name} to attack.`);
-            } else {
-                setFeedbackMessage("No more attacks left this turn.");
+            }
+
+            if (hasAbilities) {
+                setSelectedAbilitySourceInfo({ instanceId: cardData.instanceId, cardData, fieldIndex });
+                if (!canAttack) {
+                    setFeedbackMessage(`Selected ${cardData.name}. Choose an ability.`);
+                }
+            }
+
+            if (!canAttack && !hasAbilities) {
+                setFeedbackMessage(`Selected ${cardData.name}, but no actions are available.`);
             }
         }
     };
 
     const handleAbilityOptionSelect = (abilityOpt) => {
         if (isInputLocked() || !selectedAbilitySourceInfo) return;
-        log('ACTION: Selected ability option', { ability: abilityOpt.name }); // <-- LOG
+
+        // When an ability is chosen, it becomes the primary action.
+        // Clear attack selection and set the ability info.
+        setSelectedAttackerInfo(null);
         setSelectedAbilityOption(abilityOpt);
 
         const requiresTarget = abilityOpt.requiresTarget && abilityOpt.requiresTarget !== "NONE";
-
         if (requiresTarget) {
             setIsTargetingMode(true);
             setFeedbackMessage(`Ability '${abilityOpt.name}' requires a target.`);
@@ -229,24 +217,20 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
         }
     };
 
-    const handleEndTurn = () => {
-        if (isInputLocked() || !isMyTurn) return;
-        // --- LOGGING ---
-        log('ACTION: End turn');
-        clearSelections();
-        emitGameCommand({ gameId, playerId, commandType: 'END_TURN' });
-    };
+    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
 
+    useEffect(() => { if (showTurnBanner) { const timer = setTimeout(() => setShowTurnBanner(false), 2500); return () => clearTimeout(timer); } }, [showTurnBanner]);
 
-    // --- UI Rendering ---
     const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
     return (
         <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+            {showTurnBanner && <div className="turn-banner">Your Turn</div>}
             <CanvasWrapper
                 ref={canvasRef}
                 gameState={localGameState}
                 playerId={playerId}
+                onMagnify={setMagnifiedCard}
                 onCardClickOnField={handleCardClickOnField}
                 onEmptyFieldSlotClick={handleEmptyFieldSlotClick}
                 onTableClick={handleTableClick}
@@ -254,34 +238,32 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
                 selectedAttackerInfo={selectedAttackerInfo}
                 selectedAbilitySourceInfo={selectedAbilitySourceInfo}
                 isTargetingMode={isTargetingMode}
+                selectedAbilityOption={selectedAbilityOption}
                 currentEffect={currentEffect}
                 onEffectComplete={handleEffectComplete}
+                attackAnimation={attackAnimation}
+            />
+            <GameLog
+                eventBatch={eventBatch}
+                player1Name={localGameState.player1State.displayName}
+                player2Name={localGameState.player2State.displayName}
             />
             <div style={{ position: 'absolute', top: 10, right: 15, zIndex: 200 }}>
-                <button
-                    onClick={downloadLogs}
-                    style={{
-                        backgroundColor: 'rgba(211, 84, 0, 0.8)',
-                        color: 'white',
-                        border: '1px solid #f39c12'
-                    }}
-                    title="Download all frontend game logs for this session"
-                >
-                    Download Logs
-                </button>
+                <button onClick={downloadLogs}>Download Logs</button>
             </div>
-            {/* ... UI Overlays ... */}
-            <div style={{ position: 'absolute', top: 10, left: 15, color: 'white', pointerEvents: 'none', textShadow: '1px 1px 2px black' }}>
+            <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', color: 'white', pointerEvents: 'none', textShadow: '1px 1px 2px black', textAlign: 'center' }}>
                 <p style={{ margin: 0 }}>Turn: {localGameState.turnNumber} | {isMyTurn ? "Your Turn" : "Opponent's Turn"}</p>
                 {isMyTurn && <p style={{ margin: 0 }}>Attacks Left: {MAX_ATTACKS_PER_TURN - viewingPlayer.attacksDeclaredThisTurn}</p>}
                 <p style={{ color: '#FFD700', margin: '5px 0 0 0', fontStyle: 'italic' }}>{feedbackMessage}</p>
             </div>
 
-            {/* Ability Panel */}
-            {isMyTurn && !isTargetingMode && selectedAbilitySourceInfo && (
+            {/* ABILITY PANEL: now only shows if an ability source is selected */}
+            {isMyTurn && selectedAbilitySourceInfo && (
                 <div style={{ position: 'absolute', bottom: '150px', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'rgba(40,45,60,0.95)', border: '1px solid #7fceff', padding: '15px', borderRadius: '8px', zIndex: 110, color: 'white', display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '300px' }}>
-                    <h4 style={{ marginTop: 0, marginBottom: '10px', textAlign: 'center' }}>{selectedAbilitySourceInfo.cardData.name} - Abilities</h4>
-                    {CARD_ABILITIES[selectedAbilitySourceInfo.cardData.cardId].map(opt => <button key={opt.index} onClick={() => handleAbilityOptionSelect(opt)}>{opt.name}</button>)}
+                    <h4 style={{ marginTop: 0, marginBottom: '10px', textAlign: 'center' }}>{selectedAbilitySourceInfo.cardData.name} - Actions</h4>
+                    {selectedAbilitySourceInfo.cardData.abilities.map(opt => (
+                        <button key={opt.index} onClick={() => handleAbilityOptionSelect(opt)} title={opt.description || ''}>{opt.name}</button>
+                    ))}
                     <button onClick={clearSelections} style={{ backgroundColor: '#dc3545' }}>Cancel</button>
                 </div>
             )}
@@ -289,71 +271,62 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
             <div className="html-hand-card-container">
                 {viewingPlayer.hand.map(card => (
                     <HTMLHandCard
-                        key={card.instanceId}
-                        cardData={card}
-                        onClick={handleHTMLCardClickInHand}
-                        onMagnify={setMagnifiedCard}
+                        key={card.instanceId} cardData={card}
+                        onClick={handleHTMLCardClickInHand} onMagnify={setMagnifiedCard}
                         isSelected={selectedHandCardInfo?.instanceId === card.instanceId}
                     />
                 ))}
             </div>
-
             <div style={{ position: 'absolute', bottom: 10, right: 15 }}>
                 {isMyTurn && <button onClick={handleEndTurn} disabled={isInputLocked()}>End Turn</button>}
             </div>
             <div style={{ position: 'absolute', bottom: 10, left: 15, color: 'white', pointerEvents: 'none' }}>
                 <p style={{ margin: 0 }}>Hand: {viewingPlayer.handSize} | Deck: {viewingPlayer.deckSize} | Discard: {viewingPlayer.discardPileSize}</p>
             </div>
-
             {magnifiedCard && <MagnifiedCardView cardData={magnifiedCard} onClose={() => setMagnifiedCard(null)} />}
         </div>
     );
 };
 
-
-// --- Client-side State Logic ---
-
-/**
- * Mutates a draft of the game state based on a single event.
- * This is the client-side equivalent of Game.apply().
- * @param {object} draftState - An Immer draft state object.
- * @param {object} event - The GameEvent object from the server.
- * @param {string} viewingPlayerId - The ID of the player viewing the game.
- */
+// --- MODIFIED applyEventToState ---
 function applyEventToState(draftState, event, viewingPlayerId) {
     const p1 = draftState.player1State;
     const p2 = draftState.player2State;
-
     const getPlayer = (id) => (p1.playerId === id ? p1 : p2);
-    const findCard = (instanceId) => {
+    const findCardInfo = (instanceId) => {
         let cardInfo = null;
         [p1, p2].forEach(p => {
-            p.field.forEach((card, index) => {
-                if (card && card.instanceId === instanceId) {
-                    cardInfo = { card, owner: p, index };
-                }
-            });
+            if (p && p.field) {
+                p.field.forEach((card, index) => {
+                    if (card && card.instanceId === instanceId) {
+                        cardInfo = { card, owner: p, index };
+                    }
+                });
+            }
         });
         return cardInfo;
     };
 
+    const resetStatChanges = (card) => {
+        if (card) card.statChanges = {};
+    };
+
     switch (event.eventType) {
-        case 'TURN_STARTED': { // Use block scope for constants
+        case 'TURN_STARTED': {
             draftState.currentPlayerId = event.newTurnPlayerId;
             draftState.turnNumber = event.newTurnNumber;
             const player = getPlayer(event.newTurnPlayerId);
             if (player) {
                 player.attacksDeclaredThisTurn = 0;
                 player.field.forEach(card => {
-                    if (card) card.isExhausted = false;
+                    if (card) {
+                        card.isExhausted = false;
+                        resetStatChanges(card);
+                    }
                 });
             }
-
-            const isP1Turn = draftState.player1State.playerId === event.newTurnPlayerId;
-            draftState.currentGameState = isP1Turn ? 'PLAYER_1_TURN' : 'PLAYER_2_TURN';
             break;
         }
-
         case 'PLAYER_DREW_CARD': {
             const player = getPlayer(event.playerId);
             player.deckSize = event.newDeckSize;
@@ -363,119 +336,174 @@ function applyEventToState(draftState, event, viewingPlayerId) {
             }
             break;
         }
-
         case 'CARD_PLAYED': {
             const player = getPlayer(event.playerId);
-
-            // Set the authoritative hand size from the event
             player.handSize = event.newHandSize;
-
-            // Only mutate the viewing player's actual hand array
-            if (player.playerId === viewingPlayerId) {
-                // Use the event's `fromHandIndex` to reliably remove the correct card.
-                if (event.fromHandIndex < player.hand.length) {
-                    player.hand.splice(event.fromHandIndex, 1);
-                }
+            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
+                player.hand.splice(event.fromHandIndex, 1);
             }
-
-            // Place the card on the field for both players
-            const playedCard = { ...event.card, isExhausted: true };
-            player.field[event.toFieldSlot] = event.card;
+            const playedCard = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.currentAttack, baseDefense: event.card.currentDefense, baseLife: event.card.currentLife };
+            player.field[event.toFieldSlot] = playedCard;
             break;
         }
-
         case 'ATTACK_DECLARED': {
-            const attackerInfo = findCard(event.attackerInstanceId);
-            if (attackerInfo) {
-                attackerInfo.owner.attacksDeclaredThisTurn += 1;
-                attackerInfo.card.isExhausted = true;
+            const info = findCardInfo(event.attackerInstanceId);
+            if (info) {
+                info.owner.attacksDeclaredThisTurn += 1;
+                info.card.isExhausted = true;
             }
             break;
         }
-
         case 'COMBAT_DAMAGE_DEALT': {
-            const defenderInfo = findCard(event.defenderInstanceId);
-            if (defenderInfo) {
-                defenderInfo.card.currentLife = event.defenderLifeAfter;
+            const info = findCardInfo(event.defenderInstanceId);
+            if (info) {
+                resetStatChanges(info.card);
+                info.card.statChanges.life = true;
+                info.card.currentLife = event.defenderLifeAfter;
             }
             break;
         }
-
+        // --- MODIFIED CASE: Mark card for animation ---
         case 'CARD_DESTROYED': {
-            const cardInfo = findCard(event.card.instanceId);
-            if (cardInfo) {
-                cardInfo.owner.field[cardInfo.index] = null;
-                cardInfo.owner.discardPileSize += 1;
+            const info = findCardInfo(event.card.instanceId);
+            if (info) {
+                info.card.isDying = true;
+                info.owner.discardPileSize += 1;
             }
             break;
         }
-
+        // --- NEW CASE: Remove card from state after animation ---
+        case 'FINAL_CLEANUP': {
+            const info = findCardInfo(event.targetId);
+            if (info) {
+                info.owner.field[info.index] = null;
+            }
+            break;
+        }
+        case 'CARD_STATS_CHANGED': { // For Auras
+            const info = findCardInfo(event.targetInstanceId);
+            if (info) {
+                resetStatChanges(info.card);
+                if (info.card.currentAttack !== event.newAttack) info.card.statChanges.attack = true;
+                if (info.card.currentDefense !== event.newDefense) info.card.statChanges.defense = true;
+                info.card.currentAttack = event.newAttack;
+                info.card.currentDefense = event.newDefense;
+            }
+            break;
+        }
         case 'CARD_BUFFED':
-        case 'CARD_DEBUFFED':
-        case 'CARD_HEALED':
+        case 'CARD_DEBUFFED': {
+            const info = findCardInfo(event.targetInstanceId);
+            if (info) {
+                resetStatChanges(info.card);
+                if (event.stat === "ATK") {
+                    info.card.statChanges.attack = true;
+                    info.card.currentAttack = event.statAfter;
+                }
+                if (event.stat === "DEF") {
+                    info.card.statChanges.defense = true;
+                    info.card.currentDefense = event.statAfter;
+                }
+            }
+            break;
+        }
+        case 'CARD_HEALED': {
+            const info = findCardInfo(event.targetInstanceId);
+            if (info) {
+                resetStatChanges(info.card);
+                info.card.statChanges.life = true;
+                info.card.currentLife = event.lifeAfter;
+            }
+            break;
+        }
         case 'CARD_FLAG_CHANGED': {
-            const cardInfo = findCard(event.targetInstanceId);
-            if (cardInfo) {
-                if (event.statAfter !== undefined) {
-                    if (event.stat === "ATK") cardInfo.card.currentAttack = event.statAfter;
-                    if (event.stat === "DEF") cardInfo.card.currentDefense = event.statAfter;
-                }
-                if (event.lifeAfter !== undefined) {
-                    cardInfo.card.currentLife = event.lifeAfter;
+            const info = findCardInfo(event.targetInstanceId);
+            if (info) {
+                if (!info.card.effectFlags) info.card.effectFlags = {};
+                if (event.value === null) {
+                    delete info.card.effectFlags[event.flagName];
+                } else {
+                    info.card.effectFlags[event.flagName] = event.value;
                 }
             }
             break;
         }
-
-        case 'TURN_ENDED': {
-            const endedPlayer = getPlayer(event.endedTurnPlayerId);
-            if (endedPlayer && endedPlayer.playerId === viewingPlayerId) {
-                // Simple hand size adjustment if needed, but PLAYER_DREW_CARD handles the truth.
-                // The main logic is just changing the turn.
+        case 'CARD_TRANSFORMED': {
+            const info = findCardInfo(event.originalInstanceId);
+            if (info) {
+                const newCard = { ...event.newCardDto, isExhausted: true, statChanges: {}, baseAttack: event.newCardDto.currentAttack, baseDefense: event.newCardDto.currentDefense, baseLife: event.newCardDto.currentLife };
+                info.owner.field[info.index] = newCard;
             }
             break;
         }
-
-        case 'GAME_OVER':
-            draftState.currentGameState = 'GAME_OVER';
-            draftState.message = event.reason;
+        case 'CARD_VANISHED': {
+            const info = findCardInfo(event.instanceId);
+            if (info) info.owner.field[info.index] = null;
             break;
+        }
+        case 'CARD_REAPPEARED': {
+            const owner = getPlayer(event.ownerPlayerId);
+            if (owner) {
+                const newCard = { ...event.card, isExhausted: true, statChanges: {} };
+                owner.field[event.toFieldSlot] = newCard;
+            }
+            break;
+        }
     }
 }
 
-/**
- * Translates a GameEvent into a visual effect object for the EffectQueue.
- * @param {object} event - The GameEvent from the server.
- * @returns {object|null} A visual effect object or null if no effect is needed.
- */
-function translateEventToEffect(event) {
+// --- MODIFIED translateEventToEffect ---
+function translateEventToEffect(currentState, event, viewingPlayerId) {
+    if (!event) return null;
+
     switch (event.eventType) {
+        case 'TURN_STARTED': {
+            // Only create the "un-exhaust" visual effect if it's the viewing player's turn.
+            if (event.newTurnPlayerId === viewingPlayerId) {
+                const player = currentState.player1State.playerId === event.newTurnPlayerId ? currentState.player1State : currentState.player2State;
+                const effects = player.field.filter(Boolean).map(card => ({
+                    type: 'UNEXHAUST', targetId: card.instanceId, duration: 500
+                }));
+                return effects;
+            }
+            return null; // Don't show the effect for the opponent's turn start.
+        }
         case 'COMBAT_DAMAGE_DEALT':
             if (event.damageAfterDefense > 0) {
                 return { type: 'DAMAGE', targetId: event.defenderInstanceId, amount: event.damageAfterDefense };
             }
             return { type: 'ZERO_DAMAGE', targetId: event.defenderInstanceId };
 
+        case 'ATTACK_DECLARED':
+            return { type: 'ATTACK_LUNGE', sourceId: event.attackerInstanceId, targetId: event.defenderInstanceId, duration: 1000 };
+
+        // --- MODIFIED CASE: Return an array of effects for sequence ---
         case 'CARD_DESTROYED':
-            return { type: 'CARD_DESTROYED', cardData: event.card };
+            return [
+                { type: 'CARD_DESTROYED', targetId: event.card.instanceId, duration: 1200 },
+                { type: 'FINAL_CLEANUP', targetId: event.card.instanceId }
+            ];
 
         case 'CARD_HEALED':
             return { type: 'HEAL', targetId: event.targetInstanceId, amount: event.amount };
 
         case 'CARD_PLAYED':
-            return { type: 'CARD_PLAYED', targetId: event.card.instanceId };
+            return null;
 
         case 'CARD_BUFFED':
-            return { type: 'STAT_CHANGE', isBuff: true, targetId: event.targetInstanceId };
+            return { type: 'STAT_CHANGE', isBuff: true, targetId: event.targetInstanceId, text: `+${event.amount} ${event.stat}` };
 
         case 'CARD_DEBUFFED':
-            return { type: 'STAT_CHANGE', isBuff: false, targetId: event.targetInstanceId };
+            return { type: 'STAT_CHANGE', isBuff: false, targetId: event.targetInstanceId, text: `-${event.amount} ${event.stat}` };
 
-        case 'GAME_LOG_MESSAGE':
-            if (event.level === 'EFFECT' || event.level === 'WARN') {
-                // Could be extended to show floating text on screen
-            }
-            return null;
+        case 'CARD_TRANSFORMED':
+            return { type: 'TRANSFORM', targetId: event.originalInstanceId, duration: 1500 };
+
+        case 'CARD_VANISHED':
+            return { type: 'VANISH', targetId: event.instanceId, duration: 1200 };
+
+        case 'CARD_REAPPEARED':
+            return { type: 'REAPPEAR', targetId: event.card.instanceId, duration: 1400 };
 
         default:
             return null;

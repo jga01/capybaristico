@@ -1,4 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, Suspense } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { useLoader } from '@react-three/fiber';
+import * as THREE from 'three';
 import './App.css';
 import {
   connectSocket,
@@ -16,8 +19,8 @@ import {
   emitJoinLobby,
   onJoinLobbyFailed,
   offJoinLobbyFailed,
-  onGameReady, // Changed from onGameStart
-  offGameReady, // Changed from offGameStart
+  onGameReady,
+  offGameReady,
   onGameEvents,
   offGameEvents,
   onCommandRejected,
@@ -25,6 +28,23 @@ import {
 } from './services/socketService';
 import { initLogger, log } from './services/loggingService';
 import GameScreen from './components/GameScreen';
+import { getGameAssetUrls } from './services/assetService';
+
+// --- NEW Preload Component ---
+// This simple component's only job is to trigger the preloading via its hook.
+// It will be rendered inside a temporary, hidden canvas.
+const PreloadTrigger = ({ onLoaded }) => {
+  // This hook will suspend until all textures are loaded.
+  useLoader(THREE.TextureLoader, getGameAssetUrls());
+
+  // Once the line above completes (i.e., textures are loaded), this effect runs.
+  useEffect(() => {
+    onLoaded();
+  }, [onLoaded]);
+
+  return null; // It doesn't need to render anything visible.
+};
+
 
 const LobbyItem = ({ lobby, onJoin, isJoining, currentDisplayName }) => (
   <div style={{ border: '1px solid #444', margin: '8px auto', padding: '10px', background: '#2e2e2e', color: '#eee', borderRadius: '5px', width: '80%', maxWidth: '400px' }}>
@@ -56,10 +76,14 @@ function App() {
   const [gameId, setGameId] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [initialGameState, setInitialGameState] = useState(null);
-  const [eventBatch, setEventBatch] = useState(null); // New state for event batches
+  const [eventBatch, setEventBatch] = useState(null);
   const [commandErrorMsg, setCommandErrorMsg] = useState('');
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameOverMessage, setGameOverMessage] = useState('');
+
+  // --- NEW Preloading State ---
+  const [isPreloading, setIsPreloading] = useState(false);
+  const [assetsLoaded, setAssetsLoaded] = useState(false);
 
   const resetGameRelatedState = useCallback(() => {
     setGameId(null);
@@ -70,6 +94,9 @@ function App() {
     setIsGameOver(false);
     setCommandErrorMsg('');
     setGameOverMessage('');
+    // --- MODIFIED: Reset preloading state on game end ---
+    setIsPreloading(false);
+    setAssetsLoaded(false);
     if (getSocket() && getSocket().connected) {
       emitGetOpenLobbies();
     }
@@ -115,9 +142,12 @@ function App() {
   }, []);
 
   const handleGameReady = useCallback((initialState) => {
-    // --- LOGGING ---
     initLogger();
     log('EVENT: Game is ready. Received initial state.', initialState);
+
+    if (!assetsLoaded) {
+      setIsPreloading(true);
+    }
 
     setInitialGameState(initialState);
     setGameId(initialState.gameId);
@@ -129,12 +159,11 @@ function App() {
     setIsJoiningLobby(false);
     setCommandErrorMsg('');
     setIsGameOver(false);
-  }, []);
+  }, [assetsLoaded]);
 
   const handleGameEvents = useCallback((events) => {
     if (Array.isArray(events)) {
-      setEventBatch(events); // Pass the whole batch to GameScreen
-      // Check for game over event within the batch
+      setEventBatch(events);
       const gameOverEvent = events.find(e => e.eventType === 'GAME_OVER');
       if (gameOverEvent) {
         setIsGameOver(true);
@@ -190,14 +219,14 @@ function App() {
   const handleCreateLobby = () => {
     if (!displayName.trim()) { setAppError('Please enter a display name.'); return; }
     if (!isConnected) { setAppError('Not connected to the server.'); return; }
-    log('ACTION: Create Lobby', { displayName }); // <-- ADD THIS LOG
+    log('ACTION: Create Lobby', { displayName });
     setAppError(''); emitCreateLobby({ displayName });
   };
 
   const handleJoinLobby = (lobbyIdToJoin) => {
     if (!displayName.trim()) { setAppError('Please enter a display name to join a lobby.'); return; }
     if (!isConnected) { setAppError('Not connected to the server.'); return; }
-    log('ACTION: Join Lobby', { lobbyId: lobbyIdToJoin, displayName }); // <-- ADD THIS LOG
+    log('ACTION: Join Lobby', { lobbyId: lobbyIdToJoin, displayName });
     setAppError(''); setIsJoiningLobby(true); emitJoinLobby({ lobbyId: lobbyIdToJoin, displayName });
   };
 
@@ -205,6 +234,7 @@ function App() {
     resetGameRelatedState();
     setServerMessage("Returned to lobby selection.");
   };
+
 
   if (!isConnected) {
     return (
@@ -215,7 +245,29 @@ function App() {
     );
   }
 
-  if (isInLobbyOrGame && gameId && playerId && initialGameState && !isGameOver) {
+  // --- NEW: Render the preloader if triggered ---
+  if (isPreloading && !assetsLoaded) {
+    return (
+      <div className="App game-active" style={{ backgroundColor: '#1a1d21' }}>
+        <div style={{ color: 'white', textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1 }}>
+          <h2>Loading Game Assets...</h2>
+        </div>
+        {/* FIX: This canvas is now positioned off-screen instead of being hidden, ensuring a valid WebGL context */}
+        <Canvas style={{ position: 'absolute', width: '1px', height: '1px', top: -9999, left: -9999 }}>
+          <Suspense fallback={null}>
+            <PreloadTrigger onLoaded={() => {
+              log('Assets loaded successfully.');
+              setAssetsLoaded(true);
+              setIsPreloading(false);
+            }} />
+          </Suspense>
+        </Canvas>
+      </div>
+    );
+  }
+
+  // --- MODIFIED: Check for assetsLoaded before rendering the game screen ---
+  if (isInLobbyOrGame && gameId && playerId && initialGameState && !isGameOver && assetsLoaded) {
     return (
       <div className="App game-active" style={{ width: '100vw', height: '100vh', padding: 0, margin: 0, overflow: 'hidden', position: 'relative', background: '#1a1d21' }}>
         {commandErrorMsg && <p className="app-level-error-bar">Action Error: {commandErrorMsg}</p>}

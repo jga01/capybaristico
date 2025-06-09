@@ -1,6 +1,7 @@
 package com.jamestiago.capycards.game.dto;
 
 import com.jamestiago.capycards.model.Rarity; // Assuming Rarity is in model
+import java.util.List;
 
 public class CardInstanceDTO {
     private String instanceId; // Unique ID of this card instance on the field/hand
@@ -14,30 +15,10 @@ public class CardInstanceDTO {
     private Rarity rarity;
     private String imageUrl;
     private boolean isExhausted;
+    private List<AbilityInfoDTO> abilities;
 
     public CardInstanceDTO() {
     }
-
-    // Constructor to map from CardInstance (from game logic)
-    // public CardInstanceDTO(com.yourusername.yourcardgame.game.CardInstance
-    // cardInstance) {
-    // if (cardInstance == null) return; // Handle null case, maybe throw exception
-    // or log
-    // this.instanceId = cardInstance.getInstanceId();
-    // com.yourusername.yourcardgame.model.Card def = cardInstance.getDefinition();
-    // if (def != null) {
-    // this.cardId = def.getCardId();
-    // this.name = def.getName();
-    // this.type = def.getType();
-    // this.effectText = def.getEffectText();
-    // this.rarity = def.getRarity();
-    // this.imageUrl = def.getImageUrl();
-    // }
-    // this.currentLife = cardInstance.getCurrentLife();
-    // this.currentAttack = cardInstance.getCurrentAttack();
-    // this.currentDefense = cardInstance.getCurrentDefense();
-    // // this.isExhausted = cardInstance.isExhausted();
-    // }
 
     // Getters and Setters
     public String getInstanceId() {
@@ -126,5 +107,13 @@ public class CardInstanceDTO {
 
     public void setIsExhausted(boolean isExhausted) {
         this.isExhausted = isExhausted;
+    }
+
+    public List<AbilityInfoDTO> getAbilities() {
+        return abilities;
+    }
+
+    public void setAbilities(List<AbilityInfoDTO> abilities) {
+        this.abilities = abilities;
     }
 }

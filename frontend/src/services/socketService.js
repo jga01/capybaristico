@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 import { log } from './loggingService';
 
 // The URL of your backend Socket.IO server
-const SOCKET_SERVER_URL = 'http://localhost:9092';
+const SOCKET_SERVER_URL = 'http://192.168.96.44:9092';
 
 let socket = null;
 

@@ -1,11 +1,21 @@
 package com.jamestiago.capycards.game;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jamestiago.capycards.game.dto.AbilityInfoDTO;
 import com.jamestiago.capycards.game.dto.CardInstanceDTO;
 import com.jamestiago.capycards.game.dto.PlayerStateDTO;
 import com.jamestiago.capycards.game.dto.GameStateResponse;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class GameStateMapper {
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     public static GameStateResponse createGameStateResponse(Game game, String forWhosePlayerId) {
         GameStateResponse response = new GameStateResponse();
@@ -66,11 +76,44 @@ public class GameStateMapper {
             dto.setEffectText(def.getEffectText());
             dto.setRarity(def.getRarity());
             dto.setImageUrl(def.getImageUrl());
+            dto.setAbilities(parseAbilities(def.getEffectConfiguration()));
         }
         dto.setCurrentLife(cardInstance.getCurrentLife());
         dto.setCurrentAttack(cardInstance.getCurrentAttack());
         dto.setCurrentDefense(cardInstance.getCurrentDefense());
         dto.setIsExhausted(cardInstance.isExhausted());
         return dto;
+    }
+
+    private static List<AbilityInfoDTO> parseAbilities(String effectConfiguration) {
+        if (effectConfiguration == null || effectConfiguration.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<AbilityInfoDTO> abilities = new ArrayList<>();
+        try {
+            List<Map<String, Object>> effectConfigs = objectMapper.readValue(effectConfiguration,
+                    new TypeReference<>() {
+                    });
+
+            for (Map<String, Object> config : effectConfigs) {
+                if ("ACTIVATED".equalsIgnoreCase((String) config.get("trigger"))) {
+                    // Extract data directly from the JSON config.
+                    // This requires the JSON to be structured with this data.
+                    Integer index = (Integer) config.get("abilityOptionIndex");
+                    String name = (String) config.get("name");
+                    String description = (String) config.get("description");
+                    String requiresTarget = (String) config.get("requiresTarget");
+
+                    if (index != null && name != null) {
+                        abilities.add(new AbilityInfoDTO(index, name, description, requiresTarget));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Log this error properly in a real application
+            System.err.println("Failed to parse abilities from effectConfiguration: " + e.getMessage());
+        }
+        return abilities;
     }
 }

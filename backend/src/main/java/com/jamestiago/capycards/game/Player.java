@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class Player {
     private final String playerId;
@@ -49,10 +50,11 @@ public class Player {
         this.attacksDeclaredThisTurn = other.attacksDeclaredThisTurn;
 
         // Deep copy mutable collections
-        this.deck = new Deck(other.deck); // Deck also needs a copy constructor
-        this.hand = new ArrayList<>(other.hand);
-        this.field = new ArrayList<>(other.field);
-        this.discardPile = new ArrayList<>(other.discardPile);
+        this.deck = new Deck(other.deck); // Assumes Deck has a copy constructor
+        this.hand = other.hand.stream().map(CardInstance::new).collect(Collectors.toList());
+        this.field = other.field.stream().map(c -> c != null ? new CardInstance(c) : null)
+                .collect(Collectors.toList());
+        this.discardPile = other.discardPile.stream().map(CardInstance::new).collect(Collectors.toList());
     }
 
     // Returns the drawn card, or null if deck is empty
@@ -61,8 +63,10 @@ public class Player {
             return null;
         }
         CardInstance drawnCard = deck.draw();
-        if (drawnCard != null) {
+        if (drawnCard != null && hand.size() < MAX_HAND_SIZE) {
             hand.add(drawnCard);
+        } else if (drawnCard != null) {
+            discardPile.add(drawnCard); // Discard if hand is full
         }
         return drawnCard;
     }

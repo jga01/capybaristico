@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.LinkedList; // LinkedList is good for frequent removeFirst (draw) operations
 import java.util.List;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 public class Deck {
 
@@ -19,10 +20,13 @@ public class Deck {
         }
     }
 
-    // Constructor: takes a list of CardInstances that will form the deck
+    // Copy constructor for creating a deep copy for simulations
     public Deck(Deck other) {
         if (other != null && other.cards != null) {
-            this.cards = new LinkedList<>(other.cards);
+            // Create new CardInstance objects for the new deck
+            this.cards = other.cards.stream()
+                    .map(CardInstance::new)
+                    .collect(Collectors.toCollection(LinkedList::new));
         } else {
             this.cards = new LinkedList<>();
         }

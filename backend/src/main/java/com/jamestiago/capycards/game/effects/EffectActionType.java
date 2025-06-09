@@ -10,6 +10,10 @@ public enum EffectActionType {
     DESTROY_CARD,
     TRANSFORM_CARD,
 
+    SCHEDULE_ACTION,
+    VANISH, // Removes card from board and puts it in limbo
+    REAPPEAR, // Takes a card from limbo and puts it back on the board
+
     // State/Flag Manipulation
     APPLY_FLAG,
     REMOVE_FLAG,

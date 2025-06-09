@@ -29,7 +29,7 @@ public class SocketIOConfig {
         config.setHostname(host);
         config.setPort(port);
 
-        config.setOrigin(frontendOrigin); // Set the allowed origin for CORS
+        config.setOrigin("*"); // Set the allowed origin for CORS
 
         // Optional: Further configurations
         // config.setBossThreads(1);

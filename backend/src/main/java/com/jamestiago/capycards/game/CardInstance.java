@@ -1,7 +1,10 @@
 package com.jamestiago.capycards.game;
 
 import com.jamestiago.capycards.model.Card;
+
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,7 +24,12 @@ public class CardInstance {
     // New Data-Driven Effect State
     private final Map<String, Object> effectFlags = new ConcurrentHashMap<>();
     public final Map<String, Integer> temporaryStatBuffs = new ConcurrentHashMap<>(); // e.g., "ATK" -> 2
+    public final Map<String, Integer> auraStatBuffs = new ConcurrentHashMap<>(); // e.g., "ATK" -> 1
+
     private CardInstance lastDamageSourceCard = null;
+
+    // Key: Turn number to execute on. Value: List of effect configurations.
+    private final Map<Integer, List<Map<String, Object>>> scheduledActions = new ConcurrentHashMap<>();
 
     public CardInstance(Card cardDefinition) {
         this.instanceId = UUID.randomUUID().toString();
@@ -35,6 +43,38 @@ public class CardInstance {
         // Initialize current stats
         this.currentLife = this.baseLife;
         this.isExhausted = true; // Default to exhausted on creation
+    }
+
+    public void addScheduledAction(int onTurnNumber, Map<String, Object> effectConfig) {
+        this.scheduledActions.computeIfAbsent(onTurnNumber, k -> new ArrayList<>()).add(effectConfig);
+    }
+
+    public List<Map<String, Object>> getScheduledActionsForTurn(int turnNumber) {
+        return this.scheduledActions.get(turnNumber);
+    }
+
+    public void clearScheduledActionsForTurn(int turnNumber) {
+        this.scheduledActions.remove(turnNumber);
+    }
+
+    // Copy constructor for simulations
+    public CardInstance(CardInstance other) {
+        this.instanceId = other.instanceId;
+        this.cardDefinition = other.cardDefinition; // Definitions are immutable
+        this.baseLife = other.baseLife;
+        this.baseAttack = other.baseAttack;
+        this.baseDefense = other.baseDefense;
+        this.currentLife = other.currentLife;
+        this.isExhausted = other.isExhausted;
+        this.lastDamageSourceCard = other.lastDamageSourceCard; // Shallow copy is fine here
+
+        // Deep copy the maps
+        this.effectFlags.putAll(other.effectFlags);
+        this.temporaryStatBuffs.putAll(other.temporaryStatBuffs);
+
+        other.scheduledActions.forEach((turn, effects) -> {
+            this.scheduledActions.put(turn, new ArrayList<>(effects));
+        });
     }
 
     // --- New Flag Management ---
@@ -94,13 +134,36 @@ public class CardInstance {
         temporaryStatBuffs.clear();
     }
 
+    /**
+     * Clears buffs applied by auras. Called before every aura recalculation.
+     */
+    public void clearAuraBuffs() {
+        auraStatBuffs.clear();
+    }
+
+    /**
+     * Clears flags applied by auras. Called before every aura recalculation.
+     * Uses a naming convention where aura-applied flags end with "_AURA".
+     */
+    public void clearAuraFlags() {
+        effectFlags.keySet().removeIf(key -> key.endsWith("_AURA"));
+    }
+
+    public void addAuraBuff(String stat, int amount) {
+        auraStatBuffs.merge(stat.toUpperCase(), amount, Integer::sum);
+    }
+
     // --- Stat Getters (Now incorporating buffs) ---
     public int getCurrentAttack() {
-        return Math.max(0, this.baseAttack + temporaryStatBuffs.getOrDefault("ATK", 0));
+        return Math.max(0, this.baseAttack
+                + temporaryStatBuffs.getOrDefault("ATK", 0)
+                + auraStatBuffs.getOrDefault("ATK", 0));
     }
 
     public int getCurrentDefense() {
-        return Math.max(0, this.baseDefense + temporaryStatBuffs.getOrDefault("DEF", 0));
+        return Math.max(0, this.baseDefense
+                + temporaryStatBuffs.getOrDefault("DEF", 0)
+                + auraStatBuffs.getOrDefault("DEF", 0));
     }
 
     // --- Core Stat Setters/Methods ---
@@ -110,7 +173,9 @@ public class CardInstance {
 
     public void setCurrentLife(int currentLife) {
         // Cap life at the original max life, potentially plus buffs to max life
-        int maxLife = this.baseLife + temporaryStatBuffs.getOrDefault("MAX_LIFE", 0);
+        int maxLife = this.baseLife
+                + temporaryStatBuffs.getOrDefault("MAX_LIFE", 0)
+                + auraStatBuffs.getOrDefault("MAX_LIFE", 0);
         this.currentLife = Math.max(0, Math.min(maxLife, currentLife));
     }
 
@@ -143,7 +208,9 @@ public class CardInstance {
 
     public void heal(int amount) {
         if (amount > 0) {
-            int maxLife = this.baseLife + temporaryStatBuffs.getOrDefault("MAX_LIFE", 0);
+            int maxLife = this.baseLife
+                    + temporaryStatBuffs.getOrDefault("MAX_LIFE", 0)
+                    + auraStatBuffs.getOrDefault("MAX_LIFE", 0);
             this.currentLife = Math.min(maxLife, this.currentLife + amount);
         }
     }

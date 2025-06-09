@@ -1,6 +1,7 @@
 package com.jamestiago.capycards.game.effects;
 
 import com.jamestiago.capycards.game.CardInstance;
+import com.jamestiago.capycards.game.Game;
 import com.jamestiago.capycards.game.Player;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +32,8 @@ public class ValueResolver {
             return null;
         }
 
+        Game game = (Game) context.get("game"); // Get the game object from context
+
         switch (type.toUpperCase()) {
             case "STAT":
                 return resolveStatValue(valueMap, effectSource, owner, context);
@@ -38,9 +41,43 @@ public class ValueResolver {
                 return resolveEventData(valueMap, context);
             case "FLAG_VALUE":
                 return resolveFlagValue(valueMap, effectSource, owner, context);
+            case "DYNAMIC_COUNT":
+                return resolveDynamicCount(valueMap, effectSource, owner, game);
             default:
                 logger.warn("Unknown value source type: {}", type);
                 return null;
+        }
+    }
+
+    private Integer resolveDynamicCount(Map<String, Object> valueMap, CardInstance effectSource, Player owner,
+            Game game) {
+        if (game == null) {
+            logger.warn("DynamicCount resolver requires 'game' in context.");
+            return 0;
+        }
+        String countType = (String) valueMap.get("countType");
+        if (countType == null)
+            return 0;
+
+        switch (countType.toUpperCase()) {
+            case "FRIENDLY_CARDS_WITH_TYPE":
+                String typeToCount = (String) valueMap.get("typeName");
+                if (typeToCount == null)
+                    return 0;
+
+                // Count friendly cards with the specified type, excluding the source card
+                // itself.
+                return (int) owner.getFieldInternal().stream()
+                        .filter(c -> c != null && !c.getInstanceId().equals(effectSource.getInstanceId())
+                                && c.hasType(typeToCount))
+                        .count();
+            case "OTHER_FRIENDLY_CARDS":
+                return (int) owner.getFieldInternal().stream()
+                        .filter(c -> c != null && !c.getInstanceId().equals(effectSource.getInstanceId()))
+                        .count();
+            default:
+                logger.warn("Unknown dynamic count type: {}", countType);
+                return 0;
         }
     }
 

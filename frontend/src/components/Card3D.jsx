@@ -1,145 +1,165 @@
 import React, { useRef, useMemo } from 'react';
-import { useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
-import { CARD_WIDTH, CARD_HEIGHT, CARD_DEPTH } from '../constants';
+import { Text as DreiText } from '@react-three/drei';
+import { useSpring, animated } from '@react-spring/three';
+import { CARD_WIDTH, CARD_HEIGHT, CARD_DEPTH, PARTICLE_CONFIGS } from '../constants';
+import ParticleEffect from './ParticleEffect';
+
+// A small sub-component for rendering stat numbers with animation
+const AnimatedStat = ({ number, position, color, hasChanged }) => {
+    const { scale, textColor } = useSpring({
+        scale: hasChanged ? [1.5, 1.5, 1.5] : [1, 1, 1],
+        textColor: color,
+        config: { tension: 300, friction: 10 },
+        reset: hasChanged,
+    });
+
+    return (
+        <animated.group position={position} scale={scale}>
+            <DreiText
+                fontSize={0.18}
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.01}
+                outlineColor="black"
+            >
+                <animated.meshStandardMaterial
+                    attach="material"
+                    color={textColor}
+                    roughness={0.4}
+                    metalness={0.1}
+                />
+                {number}
+            </DreiText>
+        </animated.group>
+    );
+};
+
+// Sub-component for a single status icon
+const StatusIcon = ({ iconType, position, index }) => {
+    const colors = {
+        SILENCED: '#b10dc9',
+        CAN_ATTACK_AGAIN: '#2ecc40',
+        CANNOT_ATTACK: '#ff4136',
+    };
+    const color = colors[iconType] || '#ffffff';
+
+    return (
+        <mesh position={[position[0] + index * 0.25, position[1], position[2]]}>
+            <planeGeometry args={[0.2, 0.2]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} />
+        </mesh>
+    );
+};
+
 
 const Card3D = ({
     cardData,
     position,
     rotation,
     onClick,
+    onMagnify,
     isHighlighted,
     highlightColor,
     isFaceDown,
-    isDamagedRecently,
-    isExhausted, // ADDED
+    isExhausted,
+    isDying,
+    statChanges,
+    auraColor,
     scale = 1,
+    // --- NEW PROPS ---
+    frontTexture,
+    backTexture,
 }) => {
     const meshRef = useRef();
 
-    const cardImagesBasePath = '/assets/cards_images/';
-    const actualCardBackUrl = `${cardImagesBasePath}back.png`;
-    let cardFrontTexturePath;
+    // --- REMOVED useLoader calls ---
 
-    if (isFaceDown) {
-        cardFrontTexturePath = actualCardBackUrl;
-    } else if (cardData && cardData.imageUrl) {
-        if (cardData.imageUrl.startsWith('http') || cardData.imageUrl.startsWith('/')) {
-            cardFrontTexturePath = cardData.imageUrl;
-        } else {
-            cardFrontTexturePath = cardImagesBasePath + cardData.imageUrl;
-        }
-    } else {
-        cardFrontTexturePath = actualCardBackUrl;
-    }
+    useMemo(() => [frontTexture, backTexture].forEach(t => t && (t.anisotropy = 16)), [frontTexture, backTexture]);
 
-    const normalizePath = (path) => {
-        if (!path) return null;
-        let normalized = path;
-        if (!normalized.startsWith('/') && !normalized.startsWith('http')) {
-            normalized = '/' + normalized;
-        }
-        normalized = normalized.replace(/(?<!:)\/\/+/g, '/');
-        return normalized;
+    const { emissiveIntensity, color, opacity } = useSpring({
+        emissiveIntensity: isHighlighted ? 0.6 : (auraColor ? 0.4 : 0.03),
+        color: isExhausted ? '#888' : '#fff',
+        opacity: isDying ? 0 : 1,
+        config: { duration: isDying ? 800 : 200 }
+    });
+
+
+    const currentEmissiveColor = useMemo(() => new THREE.Color(auraColor || (isHighlighted ? highlightColor : 0x000000)), [auraColor, isHighlighted, highlightColor]);
+
+    const getStatColor = (current, base, isLife = false) => {
+        if (!base) base = current;
+        if (isLife) return current < base ? '#ff4136' : '#ffffff';
+        if (current > base) return '#2ecc40';
+        if (current < base) return '#ff4136';
+        return '#ffffff';
     };
 
-    const finalFrontTexUrl = normalizePath(cardFrontTexturePath);
-    const finalBackTexUrl = normalizePath(actualCardBackUrl);
+    const statusIcons = useMemo(() => {
+        if (!cardData?.effectFlags) return [];
+        const icons = [];
+        if (cardData.effectFlags.status_silenced) icons.push('SILENCED');
+        if (cardData.effectFlags.canAttackAgainThisTurn) icons.push('CAN_ATTACK_AGAIN');
+        if (cardData.effectFlags.status_cannot_attack_AURA) icons.push('CANNOT_ATTACK');
+        return icons;
+    }, [cardData?.effectFlags]);
 
-    const frontTexture = useLoader(THREE.TextureLoader, finalFrontTexUrl || finalBackTexUrl);
-    const backTexture = useLoader(THREE.TextureLoader, finalBackTexUrl);
-
-
-    useMemo(() => {
-        [frontTexture, backTexture].forEach(tex => {
-            if (tex) {
-                tex.anisotropy = 16;
-            }
-        });
-    }, [frontTexture, backTexture]);
-
-    const materials = useMemo(() => {
-        let currentEmissiveColor = isHighlighted ? new THREE.Color(highlightColor) : new THREE.Color(0x000000);
-        let currentEmissiveIntensity = isHighlighted ? 0.6 : 0.03;
-
-        if (isDamagedRecently) {
-            currentEmissiveColor = new THREE.Color("red");
-            currentEmissiveIntensity = 0.8;
-        }
-
-        const createMaterial = (textureMap) => new THREE.MeshStandardMaterial({
-            map: textureMap,
-            roughness: 0.5,
-            metalness: 0.1,
-            emissive: currentEmissiveColor,
-            emissiveIntensity: currentEmissiveIntensity,
-            side: THREE.FrontSide,
-            color: isExhausted ? '#999' : '#fff' // <-- VISUAL CUE FOR EXHAUSTED
-        });
-        const edgeMaterial = new THREE.MeshStandardMaterial({
-            color: '#202023',
-            roughness: 0.7,
-            metalness: 0.05,
-            emissive: currentEmissiveColor,
-            emissiveIntensity: currentEmissiveIntensity * 0.5,
-        });
-        return [
-            edgeMaterial, edgeMaterial, edgeMaterial, edgeMaterial,
-            createMaterial(frontTexture),
-            createMaterial(backTexture)
-        ];
-    }, [frontTexture, backTexture, isHighlighted, highlightColor, isDamagedRecently, isExhausted]); // Added isExhausted dependency
 
     return (
-        <mesh
+        <animated.mesh
             ref={meshRef}
             scale={scale}
             position={position || [0, CARD_DEPTH / 2, 0]}
             rotation={rotation || [0, 0, 0]}
-            onClick={(e) => {
-                e.stopPropagation();
-                if (onClick) onClick(cardData, meshRef.current);
-            }}
+            onClick={(e) => { e.stopPropagation(); onClick?.(cardData, meshRef.current); }}
+            onContextMenu={(e) => { e.stopPropagation(); onMagnify?.(cardData); }}
             castShadow
             receiveShadow
-            material={materials}
         >
             <boxGeometry args={[CARD_WIDTH, CARD_HEIGHT, CARD_DEPTH]} />
-        </mesh>
+
+            <animated.meshStandardMaterial attach="material-0" color="#202023" transparent opacity={opacity} />
+            <animated.meshStandardMaterial attach="material-1" color="#202023" transparent opacity={opacity} />
+            <animated.meshStandardMaterial attach="material-2" color="#202023" transparent opacity={opacity} />
+            <animated.meshStandardMaterial attach="material-3" color="#202023" transparent opacity={opacity} />
+            {/* --- MODIFIED: Use texture props --- */}
+            <animated.meshStandardMaterial attach="material-4" map={frontTexture} color={color} emissive={currentEmissiveColor} emissiveIntensity={emissiveIntensity} roughness={0.5} metalness={0.1} transparent opacity={opacity} />
+            <animated.meshStandardMaterial attach="material-5" map={backTexture} color={color} emissive={currentEmissiveColor} emissiveIntensity={emissiveIntensity} roughness={0.5} metalness={0.1} transparent opacity={opacity} />
+
+            {!isFaceDown && cardData && (
+                <>
+                    <AnimatedStat
+                        number={cardData.currentAttack}
+                        position={[-CARD_WIDTH * 0.35, -CARD_HEIGHT * 0.4, CARD_DEPTH / 2 + 0.01]}
+                        color={getStatColor(cardData.currentAttack, cardData.baseAttack)}
+                        hasChanged={statChanges?.attack}
+                    />
+                    <AnimatedStat
+                        number={cardData.currentDefense}
+                        position={[0, -CARD_HEIGHT * 0.4, CARD_DEPTH / 2 + 0.01]}
+                        color={getStatColor(cardData.currentDefense, cardData.baseDefense)}
+                        hasChanged={statChanges?.defense}
+                    />
+                    <AnimatedStat
+                        number={cardData.currentLife}
+                        position={[CARD_WIDTH * 0.35, -CARD_HEIGHT * 0.4, CARD_DEPTH / 2 + 0.01]}
+                        color={getStatColor(cardData.currentLife, cardData.baseLife, true)}
+                        hasChanged={statChanges?.life}
+                    />
+                </>
+            )}
+
+            {statusIcons.map((iconType, i) => (
+                <StatusIcon
+                    key={i} iconType={iconType}
+                    position={[-CARD_WIDTH * 0.4 + (statusIcons.length - 1) * -0.125, CARD_HEIGHT * 0.4, CARD_DEPTH / 2 + 0.01]}
+                    index={i}
+                />
+            ))}
+
+            {isExhausted && <ParticleEffect config={PARTICLE_CONFIGS.EXHAUSTED} />}
+        </animated.mesh>
     );
 };
 
-const cardPropsAreEqual = (prevProps, nextProps) => {
-    // Compare critical props that affect rendering
-    if (prevProps.isFaceDown !== nextProps.isFaceDown) return false;
-    if (prevProps.isHighlighted !== nextProps.isHighlighted) return false;
-    if (prevProps.highlightColor !== nextProps.highlightColor) return false;
-    if (prevProps.isDamagedRecently !== nextProps.isDamagedRecently) return false;
-    if (prevProps.scale !== nextProps.scale) return false;
-    if (prevProps.isExhausted !== nextProps.isExhausted) return false; // ADDED
-
-    // Compare cardData (assuming it can be null or an object)
-    if (!prevProps.cardData && !nextProps.cardData) { /* both null, same */ }
-    else if (!prevProps.cardData || !nextProps.cardData) return false; // one is null, different
-    else { // both are objects, compare relevant fields
-        if (prevProps.cardData.instanceId !== nextProps.cardData.instanceId) return false;
-        if (prevProps.cardData.imageUrl !== nextProps.cardData.imageUrl) return false;
-        if (prevProps.cardData.currentLife !== nextProps.cardData.currentLife) return false;
-        if (prevProps.cardData.currentAttack !== nextProps.cardData.currentAttack) return false;
-        if (prevProps.cardData.currentDefense !== nextProps.cardData.currentDefense) return false;
-        if (prevProps.cardData.isExhausted !== nextProps.cardData.isExhausted) return false; // ADDED
-    }
-
-    // Compare position array (content, not reference)
-    if (prevProps.position && nextProps.position) {
-        if (prevProps.position.length !== nextProps.position.length) return false;
-        for (let i = 0; i < prevProps.position.length; i++) {
-            if (prevProps.position[i] !== nextProps.position[i]) return false;
-        }
-    } else if (prevProps.position || nextProps.position) return false; // one is null/undefined
-
-    return true; // Props are considered equal
-};
-
-
-export default React.memo(Card3D, cardPropsAreEqual);
+export default React.memo(Card3D);

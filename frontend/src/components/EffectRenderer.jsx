@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import * as THREE from 'three';
-import DamageNumber from './DamageNumber';
+import FloatingText from './FloatingText';
 import ParticleEffect from './ParticleEffect';
 import { PARTICLE_CONFIGS } from '../constants';
 
@@ -10,11 +10,10 @@ const EffectRenderer = ({ currentEffect, onEffectComplete, findCardPosition }) =
   useEffect(() => {
     if (currentEffect) {
       setLocalEffect(currentEffect);
-      const { type } = currentEffect;
 
-      // The effect's duration is now primarily controlled by the particle lifetime.
+      // The effect's duration is now primarily controlled by the particle lifetime or text animation.
       // We set a generous timeout to ensure the queue always advances.
-      let duration = 2500; // Max expected lifetime
+      const duration = currentEffect.duration || 2500; // Use effect-specific duration or a default
       const timer = setTimeout(() => {
         onEffectComplete();
       }, duration);
@@ -27,52 +26,66 @@ const EffectRenderer = ({ currentEffect, onEffectComplete, findCardPosition }) =
 
   if (!localEffect) return null;
 
-  const { type, targetId, sourceId, amount, isBuff, cardData, color } = localEffect;
+  const { type, targetId, sourceId, amount, isBuff, text, color, cardData } = localEffect;
 
   const targetPosition = findCardPosition(targetId) || findCardPosition(cardData?.instanceId);
   const sourcePosition = findCardPosition(sourceId);
 
-  // We can now render multiple effects for a single event to create compositions.
+  const renderEffectContent = () => {
+    if (!targetPosition) return null;
+
+    switch (type) {
+      case 'DAMAGE':
+        return <>
+          <FloatingText text={`-${amount}`} color={'#FF4136'} position={new THREE.Vector3(0, 0.4, 0)} />
+          <ParticleEffect config={PARTICLE_CONFIGS.DAMAGE} />
+        </>;
+      case 'ZERO_DAMAGE':
+        return <>
+          <FloatingText text={'Blocked!'} color={'#add8e6'} fontSize={0.35} position={new THREE.Vector3(0, 0.5, 0)} />
+          <ParticleEffect config={PARTICLE_CONFIGS.BLOCK} />
+        </>;
+      case 'HEAL':
+        return <>
+          <FloatingText text={`+${amount}`} color={'#2ecc40'} position={new THREE.Vector3(0, 0.4, 0)} />
+          <ParticleEffect config={PARTICLE_CONFIGS.HEAL} />
+        </>;
+      case 'STAT_CHANGE':
+        return <>
+          <FloatingText text={text} color={isBuff ? '#7fdbff' : '#b10dc9'} fontSize={0.3} position={new THREE.Vector3(0, 0.4, 0)} />
+          <ParticleEffect config={isBuff ? PARTICLE_CONFIGS.BUFF : PARTICLE_CONFIGS.DEBUFF} />
+        </>;
+      case 'CARD_PLAYED':
+        return <ParticleEffect config={PARTICLE_CONFIGS.CARD_PLAYED} />;
+      case 'CARD_DESTROYED':
+        return <>
+          <ParticleEffect config={PARTICLE_CONFIGS.DESTROY} />
+          <ParticleEffect config={{ ...PARTICLE_CONFIGS.DAMAGE, count: 40, lifetime: { min: 0.4, max: 0.8 } }} />
+        </>;
+      case 'TRANSFORM':
+        return <ParticleEffect config={PARTICLE_CONFIGS.TRANSFORM} />;
+      case 'VANISH':
+        return <ParticleEffect config={PARTICLE_CONFIGS.VANISH} />;
+      case 'REAPPEAR':
+        return <ParticleEffect config={PARTICLE_CONFIGS.REAPPEAR} />;
+      case 'UNEXHAUST':
+        return <ParticleEffect config={PARTICLE_CONFIGS.UNEXHAUST} />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <group>
-      {/* --- TARGETED EFFECTS --- */}
       {targetPosition && (
         <group position={targetPosition}>
-          {type === 'DAMAGE' && (
-            <>
-              <DamageNumber amount={amount} position={new THREE.Vector3(0, 0.4, 0)} />
-              <ParticleEffect config={PARTICLE_CONFIGS.DAMAGE} />
-            </>
-          )}
-          {type === 'ZERO_DAMAGE' && (
-            <>
-              <DamageNumber amount={0} position={new THREE.Vector3(0, 0.5, 0)} />
-              <ParticleEffect config={PARTICLE_CONFIGS.BLOCK} />
-            </>
-          )}
-          {type === 'HEAL' && <ParticleEffect config={PARTICLE_CONFIGS.HEAL} />}
-          {type === 'STAT_CHANGE' && <ParticleEffect config={isBuff ? PARTICLE_CONFIGS.BUFF : PARTICLE_CONFIGS.DEBUFF} />}
-          {type === 'CARD_PLAYED' && <ParticleEffect config={PARTICLE_CONFIGS.CARD_PLAYED} />}
-          {type === 'AURA_PULSE' && <ParticleEffect config={{ ...PARTICLE_CONFIGS.AURA_PULSE, color: color || '#f0f' }} />}
-
-          {/* --- COMPOSITION EXAMPLE --- */}
-          {type === 'CARD_DESTROYED' && (
-            <>
-              {/* Smoky explosion that respects depth */}
-              <ParticleEffect config={PARTICLE_CONFIGS.DESTROY} />
-              {/* A secondary, smaller impact burst that renders on top */}
-              <ParticleEffect config={{ ...PARTICLE_CONFIGS.DAMAGE, count: 40, lifetime: { min: 0.4, max: 0.8 } }} />
-            </>
-          )}
+          {renderEffectContent()}
         </group>
       )}
 
-      {/* --- SOURCE-ORIGINATING EFFECTS --- */}
-      {sourcePosition && (
+      {sourcePosition && type === 'SHOCKWAVE' && (
         <group position={sourcePosition}>
-          {type === 'SHOCKWAVE' && (
-            <ParticleEffect config={{ ...PARTICLE_CONFIGS.SHOCKWAVE, color: color || '#FFFFFF' }} />
-          )}
+          <ParticleEffect config={{ ...PARTICLE_CONFIGS.SHOCKWAVE, color: color || '#FFFFFF' }} />
         </group>
       )}
     </group>
