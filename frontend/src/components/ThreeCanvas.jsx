@@ -1,317 +1,533 @@
-import React, { Suspense, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
-import { Canvas, useLoader } from '@react-three/fiber';
-import { OrbitControls, Line } from '@react-three/drei';
-import { useSpring, animated } from '@react-spring/three';
-import * as THREE from 'three';
-import { getGameAssetUrls } from '../services/assetService';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { produce } from 'immer';
+import CanvasWrapper from './ThreeCanvas';
+import GameLog from './GameLog';
+import { emitGameCommand } from '../services/socketService';
+import { log, downloadLogs } from '../services/loggingService';
+import { MAX_ATTACKS_PER_TURN } from '../constants';
+import './HandCard.css';
+import MagnifiedCardView from './MagnifiedCardView';
 
-// Component Imports
-import Card3D from './Card3D';
-import EffectRenderer from './EffectRenderer';
-import { CARD_WIDTH, CARD_HEIGHT, CARD_DEPTH } from '../constants';
+const HTMLHandCard = ({ cardData, onClick, onMagnify, isSelected }) => (
+  <div
+    className={`html-hand-card ${isSelected ? 'selected' : ''}`}
+    onClick={() => onClick(cardData)}
+    onContextMenu={(e) => { e.preventDefault(); onMagnify(cardData); }} // Allow right-click to magnify
+    title={`${cardData.name}\nL:${cardData.currentLife} A:${cardData.currentAttack} D:${cardData.currentDefense}\nEffect: ${cardData.effectText?.substring(0, 100)}...`} // Tooltip remains useful
+  >
+    <img src={cardData.imageUrl ? (cardData.imageUrl.startsWith('/') ? cardData.imageUrl : `/assets/cards_images/${cardData.imageUrl}`) : '/assets/cards_images/back.png'} alt={cardData.name} />
+  </div>
+);
 
-const TableTop = ({ onTableClick }) => {
-  const tableTexture = useLoader(THREE.TextureLoader, '/assets/textures/table.png');
-  useMemo(() => {
-    if (tableTexture) {
-      tableTexture.anisotropy = 16;
+
+const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
+  const [localGameState, setLocalGameState] = useState(initialGameState);
+  const [selectedHandCardInfo, setSelectedHandCardInfo] = useState(null);
+  const [selectedAttackerInfo, setSelectedAttackerInfo] = useState(null);
+  const [selectedAbilitySourceInfo, setSelectedAbilitySourceInfo] = useState(null);
+  const [selectedAbilityOption, setSelectedAbilityOption] = useState(null);
+  const [isTargetingMode, setIsTargetingMode] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState('Game started!');
+  const [magnifiedCard, setMagnifiedCard] = useState(null);
+  const [showTurnBanner, setShowTurnBanner] = useState(false);
+  const [effectQueue, setEffectQueue] = useState([]);
+  const [currentEffect, setCurrentEffect] = useState(null);
+  const [attackAnimation, setAttackAnimation] = useState(null);
+
+  const isMyTurn = localGameState.currentPlayerId === playerId;
+  const canvasRef = useRef();
+
+  useEffect(() => {
+    log('GameScreen mounted.', { gameId, playerId }, 'INFO');
+    return () => log('GameScreen unmounted.', null, 'INFO');
+  }, [gameId, playerId]);
+
+  useEffect(() => {
+    if (!eventBatch || eventBatch.length === 0) return;
+
+    log('Received event batch from server.', { count: eventBatch.length, events: eventBatch }, 'INFO');
+
+    const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
+    if (turnStartEvent) {
+      setShowTurnBanner(true);
+      log('My turn started.', { turnNumber: turnStartEvent.newTurnNumber });
     }
-  }, [tableTexture]);
 
-  return (
-    <mesh
-      rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, -0.05, 0]}
-      receiveShadow
-      onClick={onTableClick}
-    >
-      <planeGeometry args={[100, 60]} />
-      <meshStandardMaterial
-        map={tableTexture}
-        roughness={0.8}
-        metalness={0.05}
-      />
-    </mesh>
-  );
-};
-
-const FieldSlotVisual = ({ position, onClick, isTargetableForPlay }) => {
-  const w = CARD_WIDTH + 0.1;
-  const h = CARD_HEIGHT + 0.1;
-  const points = useMemo(() => [
-    new THREE.Vector3(-w / 2, h / 2, 0), new THREE.Vector3(w / 2, h / 2, 0),
-    new THREE.Vector3(w / 2, -h / 2, 0), new THREE.Vector3(-w / 2, -h / 2, 0),
-    new THREE.Vector3(-w / 2, h / 2, 0)
-  ], [w, h]);
-
-  return (
-    <group position={position} rotation={[-Math.PI / 2, 0, 0]}>
-      <Line
-        points={points}
-        color={isTargetableForPlay ? "#76c893" : "#A0A0B0"}
-        lineWidth={isTargetableForPlay ? 3.5 : 2.5}
-        dashed={true}
-        dashSize={0.06}
-        gapSize={0.04}
-      />
-      <mesh onClick={onClick}>
-        <planeGeometry args={[w, h]} />
-        <meshStandardMaterial transparent opacity={0} />
-      </mesh>
-    </group>
-  );
-};
-
-const getFieldSlotPosition = (index, isSelf) => {
-  const xSpacing = CARD_WIDTH + 0.25;
-  const totalWidthOfSlots = (4 - 1) * xSpacing;
-  const startX = -totalWidthOfSlots / 2;
-  const xPos = startX + index * xSpacing;
-  const yPosForCards = 0.001 + CARD_DEPTH / 2;
-  const yPosForSlots = -0.049;
-  const zPos = isSelf ? 1.3 : -1.3;
-  return { x: xPos, yCard: yPosForCards, ySlot: yPosForSlots, z: zPos };
-};
-
-
-const AnimatedFieldCard = ({ card, fieldIndex, isSelf, isAttacking, findCardPosition, onMagnify, ...props }) => {
-  const { x, yCard, z } = getFieldSlotPosition(fieldIndex, isSelf);
-  const startPos = [x, yCard, z];
-
-  const { position } = useSpring({
-    to: async (next) => {
-      if (isAttacking) { // Attack Lunge Animation
-        const defenderPos = findCardPosition(isAttacking.defenderId);
-        if (defenderPos) {
-          await next({ position: [defenderPos.x, defenderPos.y + 0.5, defenderPos.z], config: { tension: 200, friction: 22 } });
-          await next({ position: startPos, config: { tension: 250, friction: 25 } });
-        } else {
-          await next({ position: startPos });
-        }
-      } else if (card.isDying) { // Dying Animation
-        await next({ position: [x, yCard - CARD_HEIGHT, z], config: { tension: 120, friction: 50, duration: 800 } });
-      } else {
-        await next({ position: startPos });
-      }
-    },
-    from: { position: startPos },
-    reset: true,
-  });
-
-  return (
-    <animated.group position={position}>
-      <Card3D {...props} cardData={card} position={[0, 0, 0]} isDying={card.isDying} onMagnify={onMagnify} />
-    </animated.group>
-  );
-};
-
-
-const cameraSettings = {
-  position: [0, 13, 0.01],
-  fov: 50,
-  near: 0.1,
-  far: 100,
-};
-
-const ThreeCanvasInternal = forwardRef(({
-  gameState,
-  playerId,
-  onCardClickOnField,
-  onEmptyFieldSlotClick,
-  onMagnify,
-  onTableClick,
-  selectedHandCardInfo,
-  selectedAttackerInfo,
-  selectedAbilitySourceInfo,
-  isTargetingMode,
-  selectedAbilityOption,
-  currentEffect,
-  onEffectComplete,
-  attackAnimation,
-}, ref) => {
-
-  // --- FIX: Load all textures once at the top level ---
-  const assetUrls = getGameAssetUrls();
-  const allTextures = useLoader(THREE.TextureLoader, assetUrls);
-  const textureMap = useMemo(() => {
-    const map = {};
-    assetUrls.forEach((url, index) => {
-      map[url] = allTextures[index];
-    });
-    return map;
-  }, [assetUrls, allTextures]);
-
-  const cardImagesBasePath = '/assets/cards_images/';
-  const backTexture = textureMap[`${cardImagesBasePath}back.png`];
-  // --- END FIX ---
-
-  if (!gameState || !gameState.player1State || !gameState.player2State) {
-    return null;
-  }
-
-  const { player1State, player2State } = gameState;
-  const viewingPlayer = playerId === player1State.playerId ? player1State : player2State;
-  const opponentPlayer = playerId === player1State.playerId ? player2State : player1State;
-  const cardInPlayRotation = [-Math.PI / 2, 0, 0];
-
-  const getOpponentHandCardPosition = (index, totalCards) => {
-    const startX = -(totalCards - 1) * (CARD_WIDTH * 0.9) / 2;
-    const xPos = startX + index * (CARD_WIDTH * 0.9);
-    return [xPos, 0.001 + CARD_DEPTH / 2, -3.8];
-  };
-
-  const findCardPosition = (instanceId) => {
-    if (!instanceId) return null;
-    let position = null;
-    const findInField = (playerState, isSelf) => {
-      playerState.field.forEach((card, index) => {
-        if (card && card.instanceId === instanceId) {
-          const { x, yCard, z } = getFieldSlotPosition(index, isSelf);
-          position = new THREE.Vector3(x, yCard, z);
+    const visualEffects = [];
+    log('Local game state BEFORE applying events.', localGameState);
+    const nextState = produce(localGameState, draftState => {
+      eventBatch.forEach(event => {
+        applyEventToState(draftState, event, playerId);
+        const effect = translateEventToEffect(draftState, event, playerId);
+        if (effect) {
+          if (Array.isArray(effect)) visualEffects.push(...effect);
+          else visualEffects.push(effect);
         }
       });
-    };
-    findInField(viewingPlayer, true);
-    if (!position) findInField(opponentPlayer, false);
-    return position;
-  };
-
-  useImperativeHandle(ref, () => ({ findCardPosition }));
-
-  const renderField = (playerState, isSelf) => {
-    return playerState.field.map((card, index) => {
-      const { ySlot, z } = getFieldSlotPosition(index, isSelf);
-      if (card) {
-        const isSelectedAsAttacker = selectedAttackerInfo?.instanceId === card.instanceId;
-        const isSelectedAsAbilitySource = selectedAbilitySourceInfo?.instanceId === card.instanceId;
-        let isTargetable = isTargetingMode && (
-          (isSelf && (selectedAbilityOption?.requiresTarget === "OWN_FIELD_CARD" || selectedAbilityOption?.requiresTarget === "ANY_FIELD_CARD")) ||
-          (!isSelf && (selectedAttackerInfo || selectedAbilityOption?.requiresTarget === "OPPONENT_FIELD_CARD" || selectedAbilityOption?.requiresTarget === "ANY_FIELD_CARD"))
-        );
-
-        // --- FIX: Determine texture from map and pass as prop ---
-        const frontTextureUrl = card.imageUrl ? `${cardImagesBasePath}${card.imageUrl}` : `${cardImagesBasePath}back.png`;
-        const frontTexture = textureMap[frontTextureUrl];
-
-        return (
-          <AnimatedFieldCard
-            key={`field-${card.instanceId}`}
-            card={card}
-            isSelf={isSelf}
-            fieldIndex={index}
-            isAttacking={attackAnimation?.attackerId === card.instanceId ? attackAnimation : null}
-            findCardPosition={findCardPosition}
-            rotation={cardInPlayRotation}
-            onClick={(data, mesh) => onCardClickOnField(data, mesh, playerState.playerId, index)}
-            isHighlighted={isSelectedAsAttacker || isSelectedAsAbilitySource || isTargetable}
-            highlightColor={isSelectedAsAttacker ? '#ffc107' : isSelectedAsAbilitySource ? '#29b6f6' : '#e57373'}
-            isExhausted={isSelf && card.isExhausted}
-            onMagnify={onMagnify}
-            statChanges={card.statChanges}
-            auraColor={card.auraColor}
-            frontTexture={frontTexture}
-            backTexture={backTexture}
-          />
-        );
-      }
-      const { x } = getFieldSlotPosition(index, isSelf);
-      return (
-        <FieldSlotVisual
-          key={`${isSelf ? 'self' : 'opp'}-empty-slot-${index}`}
-          position={new THREE.Vector3(x, ySlot, z)}
-          onClick={() => isSelf && onEmptyFieldSlotClick(playerState.playerId, index)}
-          isTargetableForPlay={isSelf && !!selectedHandCardInfo}
-        />);
     });
+
+    log('Local game state AFTER applying events.', nextState);
+    setLocalGameState(nextState);
+    setEffectQueue(prev => {
+      const newQueue = [...prev, ...visualEffects];
+      log('Effect queue updated.', { added: visualEffects.length, newTotal: newQueue.length });
+      return newQueue;
+    });
+  }, [eventBatch, playerId]);
+
+  useEffect(() => {
+    if (!currentEffect && effectQueue.length > 0) {
+      const nextEffect = effectQueue[0];
+      log('Processing next effect from queue.', nextEffect, 'RENDER');
+
+      // --- MODIFIED: Handle silent cleanup events immediately ---
+      if (nextEffect.type === 'FINAL_CLEANUP') {
+        log('Applying FINAL_CLEANUP state change.', { targetId: nextEffect.targetId }, 'RENDER');
+        setLocalGameState(produce(draft => {
+          applyEventToState(draft, nextEffect, playerId);
+        }));
+        // Skip setting it as a current effect and move to the next one
+        setEffectQueue(prev => prev.slice(1));
+        return;
+      }
+
+      setCurrentEffect(nextEffect);
+      if (nextEffect.type === 'ATTACK_LUNGE') {
+        setAttackAnimation({ attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId });
+        log('Starting ATTACK_LUNGE animation.', { attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId }, 'RENDER');
+        setTimeout(() => {
+          setAttackAnimation(null);
+          handleEffectComplete();
+        }, 1000);
+      }
+    }
+  }, [effectQueue, currentEffect, playerId]);
+
+  const handleEffectComplete = useCallback(() => {
+    log('Visual effect completed.', currentEffect, 'RENDER');
+    setCurrentEffect(null);
+    setEffectQueue(prev => prev.slice(1));
+  }, [currentEffect]);
+
+  const isInputLocked = () => effectQueue.length > 0 || !!currentEffect || !!attackAnimation;
+
+  const clearSelections = useCallback(() => {
+    log('Clearing all user selections.');
+    setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
+    setSelectedHandCardInfo(null);
+    setSelectedAttackerInfo(null);
+    setSelectedAbilitySourceInfo(null);
+    setSelectedAbilityOption(null);
+    setIsTargetingMode(false);
+  }, [isMyTurn]);
+
+  const handleTableClick = () => { if (!isInputLocked()) clearSelections(); };
+
+  const handleHTMLCardClickInHand = (cardData) => {
+    if (isInputLocked() || !isMyTurn) return;
+    log(`USER_ACTION: Clicked card in hand.`, { cardName: cardData.name, instanceId: cardData.instanceId });
+    if (selectedAttackerInfo || selectedAbilitySourceInfo) {
+      setFeedbackMessage("Another action is pending. Cancel it first.");
+      return;
+    }
+    if (selectedHandCardInfo?.instanceId === cardData.instanceId) {
+      clearSelections();
+    } else {
+      setSelectedHandCardInfo({ instanceId: cardData.instanceId, cardData });
+      setFeedbackMessage(`Selected ${cardData.name} from hand.`);
+    }
   };
 
-  const opponentHandDisplay = useMemo(() => Array.from({ length: opponentPlayer.handSize }).map((_, index) => (
-    <Card3D
-      key={`opp-hand-${index}`}
-      isFaceDown={true}
-      position={getOpponentHandCardPosition(index, opponentPlayer.handSize)}
-      rotation={cardInPlayRotation}
-      scale={0.85}
-      frontTexture={backTexture}
-      backTexture={backTexture}
-    />
-  )), [opponentPlayer.handSize, backTexture]);
+  const handleEmptyFieldSlotClick = (ownerPlayerId, fieldSlotIndex) => {
+    if (isInputLocked() || !isMyTurn || !selectedHandCardInfo || ownerPlayerId !== playerId) return;
+    log('USER_ACTION: Clicked empty field slot to play card.', { cardName: selectedHandCardInfo.cardData.name, slot: fieldSlotIndex });
+    const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
+    const handCardIndex = viewingPlayer.hand.findIndex(c => c.instanceId === selectedHandCardInfo.instanceId);
+    if (handCardIndex === -1) {
+      log("Error: Card to be played not found in local hand state.", { selected: selectedHandCardInfo }, 'ERROR');
+      setFeedbackMessage("Error: Card not found in hand.");
+      clearSelections();
+      return;
+    }
+    emitGameCommand({
+      gameId, playerId, commandType: 'PLAY_CARD',
+      handCardIndex, targetFieldSlot: fieldSlotIndex
+    });
+    clearSelections();
+  };
 
-  const pileThicknessMultiplier = 0.15;
-  const minPileHeight = 0.01;
-  const tableEpsilon = -0.048;
-  const playerDeckHeight = Math.max(minPileHeight, viewingPlayer.deckSize * CARD_DEPTH * pileThicknessMultiplier);
-  const playerDiscardHeight = Math.max(minPileHeight, viewingPlayer.discardPileSize * CARD_DEPTH * pileThicknessMultiplier);
-  const opponentDeckHeight = Math.max(minPileHeight, opponentPlayer.deckSize * CARD_DEPTH * pileThicknessMultiplier);
-  const opponentDiscardHeight = Math.max(minPileHeight, opponentPlayer.discardPileSize * CARD_DEPTH * pileThicknessMultiplier);
-  const playerPilesZ = getFieldSlotPosition(0, true).z + CARD_HEIGHT * 0.7;
-  const opponentPilesZ = getFieldSlotPosition(0, false).z - CARD_HEIGHT * 0.7;
+  const handleCardClickOnField = (cardData, mesh, ownerId, fieldIndex) => {
+    if (isInputLocked() || !isMyTurn || !cardData) return;
+    log(`USER_ACTION: Clicked card on field.`, { cardName: cardData.name, ownerId, fieldIndex, isTargetingMode });
+    const isOwnCard = ownerId === playerId;
+    const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
-  // --- FIX: Pass preloaded back texture to pile material ---
-  const pileMaterial = useMemo(() => [
-    new THREE.MeshStandardMaterial({ color: '#382d26' }), new THREE.MeshStandardMaterial({ color: '#382d26' }),
-    new THREE.MeshStandardMaterial({ map: backTexture }), new THREE.MeshStandardMaterial({ map: backTexture }),
-    new THREE.MeshStandardMaterial({ color: '#382d26' }), new THREE.MeshStandardMaterial({ color: '#382d26' }),
-  ], [backTexture]);
+    // --- TARGETING LOGIC ---
+    if (isTargetingMode) {
+      log('Targeting mode active. Resolving target.', { targetCard: cardData.name });
+      if (selectedAttackerInfo) {
+        if (isOwnCard) {
+          setFeedbackMessage("Cannot attack your own card.");
+          return;
+        }
+        emitGameCommand({
+          gameId, playerId, commandType: 'ATTACK',
+          attackerFieldIndex: selectedAttackerInfo.fieldIndex,
+          defenderFieldIndex: fieldIndex
+        });
+      } else if (selectedAbilitySourceInfo && selectedAbilityOption) {
+        emitGameCommand({
+          gameId, playerId, commandType: 'ACTIVATE_ABILITY',
+          sourceCardInstanceId: selectedAbilitySourceInfo.instanceId,
+          targetCardInstanceId: cardData.instanceId,
+          abilityOptionIndex: selectedAbilityOption.index
+        });
+      }
+      clearSelections();
+      return;
+    }
+
+    // --- SELECTION LOGIC ---
+    if (isOwnCard) {
+      clearSelections();
+
+      if (cardData.isExhausted) {
+        setFeedbackMessage(`${cardData.name} is exhausted.`);
+        return;
+      }
+
+      const canAttack = viewingPlayer.attacksDeclaredThisTurn < MAX_ATTACKS_PER_TURN;
+      const hasAbilities = cardData.abilities && cardData.abilities.length > 0;
+
+      if (canAttack) {
+        setSelectedAttackerInfo({ instanceId: cardData.instanceId, cardData, fieldIndex });
+        setFeedbackMessage(`Selected ${cardData.name} to attack. Choose a target.`);
+        setIsTargetingMode(true);
+      }
+
+      if (hasAbilities) {
+        setSelectedAbilitySourceInfo({ instanceId: cardData.instanceId, cardData, fieldIndex });
+        if (!canAttack) {
+          setFeedbackMessage(`Selected ${cardData.name}. Choose an ability.`);
+        }
+      }
+
+      if (!canAttack && !hasAbilities) {
+        setFeedbackMessage(`Selected ${cardData.name}, but no actions are available.`);
+      }
+    }
+  };
+
+  const handleAbilityOptionSelect = (abilityOpt) => {
+    if (isInputLocked() || !selectedAbilitySourceInfo) return;
+    log(`USER_ACTION: Selected ability.`, { cardName: selectedAbilitySourceInfo.cardData.name, ability: abilityOpt.name });
+
+    // When an ability is chosen, it becomes the primary action.
+    // Clear attack selection and set the ability info.
+    setSelectedAttackerInfo(null);
+    setSelectedAbilityOption(abilityOpt);
+
+    const requiresTarget = abilityOpt.requiresTarget && abilityOpt.requiresTarget !== "NONE";
+    if (requiresTarget) {
+      setIsTargetingMode(true);
+      setFeedbackMessage(`Ability '${abilityOpt.name}' requires a target.`);
+    } else {
+      emitGameCommand({
+        gameId, playerId, commandType: 'ACTIVATE_ABILITY',
+        sourceCardInstanceId: selectedAbilitySourceInfo.instanceId,
+        abilityOptionIndex: abilityOpt.index
+      });
+      clearSelections();
+    }
+  };
+
+  const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { log('USER_ACTION: Clicked End Turn button.'); clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
+
+  useEffect(() => { if (showTurnBanner) { const timer = setTimeout(() => setShowTurnBanner(false), 2500); return () => clearTimeout(timer); } }, [showTurnBanner]);
+
+  const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
   return (
-    <>
-      <ambientLight intensity={0.8} />
-      <directionalLight
-        position={[4, 20, 8]} intensity={1.5} castShadow
-        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
-        shadow-camera-far={70} shadow-bias={-0.0003}
-      />
-      <hemisphereLight skyColor={0xbde0ff} groundColor={0x505070} intensity={0.5} />
-      <fog attach="fog" args={['#0A0B0F', cameraSettings.position[1] + 12, cameraSettings.far + 50]} />
-
-      <TableTop onTableClick={onTableClick} />
-      {renderField(viewingPlayer, true)}
-      {renderField(opponentPlayer, false)}
-      {opponentHandDisplay}
-
-      <mesh position={[-CARD_WIDTH * 3, playerDeckHeight / 2 + tableEpsilon, playerPilesZ]} visible={viewingPlayer.deckSize > 0} castShadow receiveShadow material={pileMaterial}>
-        <boxGeometry args={[CARD_WIDTH, playerDeckHeight, CARD_HEIGHT]} />
-      </mesh>
-      <mesh position={[-CARD_WIDTH * 3 - CARD_WIDTH - 0.5, playerDiscardHeight / 2 + tableEpsilon, playerPilesZ]} visible={viewingPlayer.discardPileSize > 0} castShadow receiveShadow material={pileMaterial}>
-        <boxGeometry args={[CARD_WIDTH, playerDiscardHeight, CARD_HEIGHT]} />
-      </mesh>
-      <mesh position={[CARD_WIDTH * 3, opponentDeckHeight / 2 + tableEpsilon, opponentPilesZ]} visible={opponentPlayer.deckSize > 0} castShadow receiveShadow material={pileMaterial}>
-        <boxGeometry args={[CARD_WIDTH, opponentDeckHeight, CARD_HEIGHT]} />
-      </mesh>
-      <mesh position={[CARD_WIDTH * 3 + CARD_WIDTH + 0.5, opponentDiscardHeight / 2 + tableEpsilon, opponentPilesZ]} visible={opponentPlayer.discardPileSize > 0} castShadow receiveShadow material={pileMaterial}>
-        <boxGeometry args={[CARD_WIDTH, opponentDiscardHeight, CARD_HEIGHT]} />
-      </mesh>
-
-      <EffectRenderer
+    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+      {showTurnBanner && <div className="turn-banner">Your Turn</div>}
+      <CanvasWrapper
+        ref={canvasRef}
+        gameState={localGameState}
+        playerId={playerId}
+        onMagnify={setMagnifiedCard}
+        onCardClickOnField={handleCardClickOnField}
+        onEmptyFieldSlotClick={handleEmptyFieldSlotClick}
+        onTableClick={handleTableClick}
+        selectedHandCardInfo={selectedHandCardInfo}
+        selectedAttackerInfo={selectedAttackerInfo}
+        selectedAbilitySourceInfo={selectedAbilitySourceInfo}
+        isTargetingMode={isTargetingMode}
+        selectedAbilityOption={selectedAbilityOption}
         currentEffect={currentEffect}
-        onEffectComplete={onEffectComplete}
-        findCardPosition={findCardPosition}
+        onEffectComplete={handleEffectComplete}
+        attackAnimation={attackAnimation}
       />
-
-      <OrbitControls
-        enablePan={true} enableRotate={true} zoomSpeed={0.6} target={[0, 0, 0]}
-        minDistance={cameraSettings.position[1] - 9} maxDistance={cameraSettings.position[1] + 20}
-        minPolarAngle={Math.PI / 180 * 45} maxPolarAngle={Math.PI / 180 * 85}
+      <GameLog
+        eventBatch={eventBatch}
+        player1Name={localGameState.player1State.displayName}
+        player2Name={localGameState.player2State.displayName}
       />
-    </>
-  );
-});
+      <div style={{ position: 'absolute', top: 10, right: 15, zIndex: 200 }}>
+        <button onClick={() => downloadLogs(gameId)}>Download Logs</button>
+      </div>
+      <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', color: 'white', pointerEvents: 'none', textShadow: '1px 1px 2px black', textAlign: 'center' }}>
+        <p style={{ margin: 0 }}>Turn: {localGameState.turnNumber} | {isMyTurn ? "Your Turn" : "Opponent's Turn"}</p>
+        {isMyTurn && <p style={{ margin: 0 }}>Attacks Left: {MAX_ATTACKS_PER_TURN - viewingPlayer.attacksDeclaredThisTurn}</p>}
+        <p style={{ color: '#FFD700', margin: '5px 0 0 0', fontStyle: 'italic' }}>{feedbackMessage}</p>
+      </div>
 
-const CanvasWrapper = (props) => {
-  const canvasRef = useRef();
-  return (
-    <Canvas
-      shadows
-      camera={cameraSettings}
-      style={{ background: '#0B0C10' }}
-      gl={{ antialias: true, logarithmicDepthBuffer: true }}
-    >
-      <Suspense fallback={null}>
-        <ThreeCanvasInternal ref={canvasRef} {...props} />
-      </Suspense>
-    </Canvas>
+      {/* ABILITY PANEL: now only shows if an ability source is selected */}
+      {isMyTurn && selectedAbilitySourceInfo && (
+        <div style={{ position: 'absolute', bottom: '150px', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'rgba(40,45,60,0.95)', border: '1px solid #7fceff', padding: '15px', borderRadius: '8px', zIndex: 110, color: 'white', display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '300px' }}>
+          <h4 style={{ marginTop: 0, marginBottom: '10px', textAlign: 'center' }}>{selectedAbilitySourceInfo.cardData.name} - Actions</h4>
+          {selectedAbilitySourceInfo.cardData.abilities.map(opt => (
+            <button key={opt.index} onClick={() => handleAbilityOptionSelect(opt)} title={opt.description || ''}>{opt.name}</button>
+          ))}
+          <button onClick={clearSelections} style={{ backgroundColor: '#dc3545' }}>Cancel</button>
+        </div>
+      )}
+
+      <div className="html-hand-card-container">
+        {viewingPlayer.hand.map(card => (
+          <HTMLHandCard
+            key={card.instanceId} cardData={card}
+            onClick={handleHTMLCardClickInHand} onMagnify={setMagnifiedCard}
+            isSelected={selectedHandCardInfo?.instanceId === card.instanceId}
+          />
+        ))}
+      </div>
+      <div style={{ position: 'absolute', bottom: 10, right: 15 }}>
+        {isMyTurn && <button onClick={handleEndTurn} disabled={isInputLocked()}>End Turn</button>}
+      </div>
+      <div style={{ position: 'absolute', bottom: 10, left: 15, color: 'white', pointerEvents: 'none' }}>
+        <p style={{ margin: 0 }}>Hand: {viewingPlayer.handSize} | Deck: {viewingPlayer.deckSize} | Discard: {viewingPlayer.discardPileSize}</p>
+      </div>
+      {magnifiedCard && <MagnifiedCardView cardData={magnifiedCard} onClose={() => setMagnifiedCard(null)} />}
+    </div>
   );
 };
 
-export default CanvasWrapper;
+// --- MODIFIED applyEventToState ---
+function applyEventToState(draftState, event, viewingPlayerId) {
+  const p1 = draftState.player1State;
+  const p2 = draftState.player2State;
+  const getPlayer = (id) => (p1.playerId === id ? p1 : p2);
+  const findCardInfo = (instanceId) => {
+    let cardInfo = null;
+    [p1, p2].forEach(p => {
+      if (p && p.field) {
+        p.field.forEach((card, index) => {
+          if (card && card.instanceId === instanceId) {
+            cardInfo = { card, owner: p, index };
+          }
+        });
+      }
+    });
+    return cardInfo;
+  };
+
+  const resetStatChanges = (card) => {
+    if (card) card.statChanges = {};
+  };
+
+  switch (event.eventType) {
+    case 'TURN_STARTED': {
+      draftState.currentPlayerId = event.newTurnPlayerId;
+      draftState.turnNumber = event.newTurnNumber;
+      const player = getPlayer(event.newTurnPlayerId);
+      if (player) {
+        player.attacksDeclaredThisTurn = 0;
+        player.field.forEach(card => {
+          if (card) {
+            card.isExhausted = false;
+            resetStatChanges(card);
+          }
+        });
+      }
+      break;
+    }
+    case 'PLAYER_DREW_CARD': {
+      const player = getPlayer(event.playerId);
+      player.deckSize = event.newDeckSize;
+      player.handSize = event.newHandSize;
+      if (event.playerId === viewingPlayerId && event.card) {
+        player.hand.push(event.card);
+      }
+      break;
+    }
+    case 'CARD_PLAYED': {
+      const player = getPlayer(event.playerId);
+      player.handSize = event.newHandSize;
+      if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
+        player.hand.splice(event.fromHandIndex, 1);
+      }
+      const playedCard = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.currentAttack, baseDefense: event.card.currentDefense, baseLife: event.card.currentLife };
+      player.field[event.toFieldSlot] = playedCard;
+      break;
+    }
+    case 'ATTACK_DECLARED': {
+      const info = findCardInfo(event.attackerInstanceId);
+      if (info) {
+        info.owner.attacksDeclaredThisTurn += 1;
+        info.card.isExhausted = true;
+      }
+      break;
+    }
+    case 'COMBAT_DAMAGE_DEALT': {
+      const info = findCardInfo(event.defenderInstanceId);
+      if (info) {
+        resetStatChanges(info.card);
+        info.card.statChanges.life = true;
+        info.card.currentLife = event.defenderLifeAfter;
+      }
+      break;
+    }
+    case 'CARD_DESTROYED': {
+      const info = findCardInfo(event.card.instanceId);
+      if (info) {
+        info.card.isDying = true;
+        info.owner.discardPileSize += 1;
+      }
+      break;
+    }
+    case 'FINAL_CLEANUP': {
+      const info = findCardInfo(event.targetId);
+      if (info) {
+        info.owner.field[info.index] = null;
+      }
+      break;
+    }
+    case 'CARD_STATS_CHANGED': { // For Auras
+      const info = findCardInfo(event.targetInstanceId);
+      if (info) {
+        resetStatChanges(info.card);
+        if (info.card.currentAttack !== event.newAttack) info.card.statChanges.attack = true;
+        if (info.card.currentDefense !== event.newDefense) info.card.statChanges.defense = true;
+        info.card.currentAttack = event.newAttack;
+        info.card.currentDefense = event.newDefense;
+      }
+      break;
+    }
+    case 'CARD_BUFFED':
+    case 'CARD_DEBUFFED': {
+      const info = findCardInfo(event.targetInstanceId);
+      if (info) {
+        resetStatChanges(info.card);
+        if (event.stat === "ATK") {
+          info.card.statChanges.attack = true;
+          info.card.currentAttack = event.statAfter;
+        }
+        if (event.stat === "DEF") {
+          info.card.statChanges.defense = true;
+          info.card.currentDefense = event.statAfter;
+        }
+      }
+      break;
+    }
+    case 'CARD_HEALED': {
+      const info = findCardInfo(event.targetInstanceId);
+      if (info) {
+        resetStatChanges(info.card);
+        info.card.statChanges.life = true;
+        info.card.currentLife = event.lifeAfter;
+      }
+      break;
+    }
+    case 'CARD_FLAG_CHANGED': {
+      const info = findCardInfo(event.targetInstanceId);
+      if (info) {
+        if (!info.card.effectFlags) info.card.effectFlags = {};
+        if (event.value === null) {
+          delete info.card.effectFlags[event.flagName];
+        } else {
+          info.card.effectFlags[event.flagName] = event.value;
+        }
+      }
+      break;
+    }
+    case 'CARD_TRANSFORMED': {
+      const info = findCardInfo(event.originalInstanceId);
+      if (info) {
+        const newCard = { ...event.newCardDto, isExhausted: true, statChanges: {}, baseAttack: event.newCardDto.currentAttack, baseDefense: event.newCardDto.currentDefense, baseLife: event.newCardDto.currentLife };
+        info.owner.field[info.index] = newCard;
+      }
+      break;
+    }
+    case 'CARD_VANISHED': {
+      const info = findCardInfo(event.instanceId);
+      if (info) info.owner.field[info.index] = null;
+      break;
+    }
+    case 'CARD_REAPPEARED': {
+      const owner = getPlayer(event.ownerPlayerId);
+      if (owner) {
+        const newCard = { ...event.card, isExhausted: true, statChanges: {} };
+        owner.field[event.toFieldSlot] = newCard;
+      }
+      break;
+    }
+  }
+}
+
+function translateEventToEffect(currentState, event, viewingPlayerId) {
+  if (!event) return null;
+
+  switch (event.eventType) {
+    case 'TURN_STARTED': {
+      if (event.newTurnPlayerId === viewingPlayerId) {
+        const player = currentState.player1State.playerId === event.newTurnPlayerId ? currentState.player1State : currentState.player2State;
+        const effects = player.field.filter(Boolean).map(card => ({
+          type: 'UNEXHAUST', targetId: card.instanceId, duration: 500
+        }));
+        return effects;
+      }
+      return null;
+    }
+    case 'COMBAT_DAMAGE_DEALT':
+      if (event.damageAfterDefense > 0) {
+        return { type: 'DAMAGE', targetId: event.defenderInstanceId, amount: event.damageAfterDefense };
+      }
+      return { type: 'ZERO_DAMAGE', targetId: event.defenderInstanceId };
+
+    case 'ATTACK_DECLARED':
+      return { type: 'ATTACK_LUNGE', sourceId: event.attackerInstanceId, targetId: event.defenderInstanceId, duration: 1000 };
+
+    case 'CARD_DESTROYED':
+      return [
+        { type: 'CARD_DESTROYED', targetId: event.card.instanceId, duration: 1200 },
+        { type: 'FINAL_CLEANUP', targetId: event.card.instanceId } // This is a state-only event
+      ];
+
+    case 'CARD_HEALED':
+      return { type: 'HEAL', targetId: event.targetInstanceId, amount: event.amount };
+
+    case 'CARD_PLAYED':
+      return null; // The card just appears, no special effect needed here
+
+    case 'CARD_BUFFED':
+      return { type: 'STAT_CHANGE', isBuff: true, targetId: event.targetInstanceId, text: `+${event.amount} ${event.stat}` };
+
+    case 'CARD_DEBUFFED':
+      return { type: 'STAT_CHANGE', isBuff: false, targetId: event.targetInstanceId, text: `-${event.amount} ${event.stat}` };
+
+    case 'CARD_TRANSFORMED':
+      return { type: 'TRANSFORM', targetId: event.originalInstanceId, duration: 1500 };
+
+    case 'CARD_VANISHED':
+      return { type: 'VANISH', targetId: event.instanceId, duration: 1200 };
+
+    case 'CARD_REAPPEARED':
+      return { type: 'REAPPEAR', targetId: event.card.instanceId, duration: 1400 };
+
+    default:
+      return null;
+  }
+}
+
+
+export default GameScreen;

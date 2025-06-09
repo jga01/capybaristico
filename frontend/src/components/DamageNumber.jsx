@@ -30,13 +30,17 @@ const DamageNumber = ({ amount, position, onComplete }) => {
     useFrame((state, delta) => {
         if (!textRef.current) return;
 
+        // Establish start time on first frame
+        if (!textRef.current.userData.startTime) {
+            textRef.current.userData.startTime = state.clock.getElapsedTime();
+        }
+        const elapsedTime = state.clock.getElapsedTime() - textRef.current.userData.startTime;
+
         // Rise
-        setCurrentYOffset((prev) => Math.min(prev + delta * (riseAmount / animationDuration), riseAmount));
+        const riseSpeed = riseAmount / animationDuration;
+        setCurrentYOffset((prev) => Math.min(prev + delta * riseSpeed, riseAmount));
 
         // Fade out
-        // Note: This timing method can be imprecise if multiple effects are triggered.
-        // A more robust method would track start time on the ref.
-        const elapsedTime = state.clock.elapsedTime % animationDuration;
         if (elapsedTime > fadeStartTime) {
             const timeIntoFade = elapsedTime - fadeStartTime;
             setOpacity(Math.max(0, 1 - (timeIntoFade / fadeDuration)));

@@ -11,6 +11,7 @@ import com.jamestiago.capycards.model.Rarity;
 import com.jamestiago.capycards.repository.CardRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
@@ -412,8 +413,9 @@ public class GameService {
         "Ignores enemy DEF. When hit: flip coin. Heads = heal +3, tails = gain +3 ATK. Max 4 triggers.",
         """
             [
+              {"trigger": "CONTINUOUS_AURA", "action": "APPLY_AURA_BUFF", "params": {"targets": "SELF", "flags": {"ignores_defense_AURA": true}}},
               {"trigger":"ON_DAMAGE_TAKEN","condition":{"type":"VALUE_COMPARISON","params":{"sourceValue":{"source":"FLAG_VALUE","flagName":"apolo_triggers","cardContext":"SELF"},"operator":"LESS_THAN","targetValue":4}},"action":"CHAINED_EFFECTS","params":{"effects":[
-                {"action":"APPLY_FLAG","params":{"targets":"SELF","flagName":"apolo_triggers","value":1,"mode":"INCREMENT"}},
+                {"action":"MODIFY_FLAG","params":{"targets":"SELF","flagName":"apolo_triggers","mode":"INCREMENT"}},
                 {"action":"CHOOSE_RANDOM_EFFECT","params":{"choices":[
                   {"action":"HEAL_TARGET","params":{"targets":"SELF","amount":3}},
                   {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"ATK","amount":3,"isPermanent":true}}
@@ -580,9 +582,10 @@ public class GameService {
 
     newGame.setGameState(Game.GameState.WAITING_FOR_PLAYERS);
     activeGames.put(newGame.getGameId(), newGame);
-    logger.info("New game object created with ID: {}. P1: {}, P2: {}", newGame.getGameId(),
-        player1DisplayName,
-        player2DisplayName);
+
+    MDC.put("gameId", newGame.getGameId());
+    logger.info("New game object created. P1: {}, P2: {}", player1DisplayName, player2DisplayName);
+    MDC.remove("gameId");
 
     return newGame;
   }
@@ -643,11 +646,14 @@ public class GameService {
   }
 
   public void removeGame(String gameId) {
+    // Set MDC to log the final message to the correct game file
+    MDC.put("gameId", gameId);
     Game removedGame = activeGames.remove(gameId);
     if (removedGame != null) {
-      logger.info("Game {} removed from active games.", gameId);
+      logger.info("Game {} has ended and is now removed from active games. This log file is now complete.", gameId);
     } else {
       logger.warn("Attempted to remove non-existent game: {}", gameId);
     }
+    MDC.remove("gameId"); // Clean up
   }
 }

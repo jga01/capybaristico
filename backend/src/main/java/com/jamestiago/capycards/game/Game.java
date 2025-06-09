@@ -101,8 +101,6 @@ public class Game {
             applyGameStarted(e);
         } else if (event instanceof TurnStartedEvent e) {
             applyTurnStarted(e);
-        } else if (event instanceof CardDrawnEvent e) {
-            applyCardDrawn(e);
         } else if (event instanceof PlayerDrewCardEvent e) {
             applyPlayerDrewCard(e);
         } else if (event instanceof CardPlayedEvent e) {
@@ -186,13 +184,6 @@ public class Game {
         this.currentPlayer = getPlayerById(event.newTurnPlayerId);
         if (this.currentPlayer != null) {
             this.currentPlayer.resetTurnActions();
-        }
-    }
-
-    private void applyCardDrawn(CardDrawnEvent event) {
-        Player p = getPlayerById(event.playerId);
-        if (p != null) {
-            p.drawCard();
         }
     }
 
@@ -289,10 +280,10 @@ public class Game {
 
         if (event.isPermanent) {
             switch (event.stat.toUpperCase()) {
-                case "ATK" -> card.setBaseAttack(card.getDefinition().getAttack() + event.amount);
-                case "DEF" -> card.setBaseDefense(card.getDefinition().getDefense() + event.amount);
+                case "ATK" -> card.setBaseAttack(card.baseAttack + event.amount);
+                case "DEF" -> card.setBaseDefense(card.baseDefense + event.amount);
                 case "MAX_LIFE" -> {
-                    card.setBaseLife(card.getDefinition().getInitialLife() + event.amount);
+                    card.setBaseLife(card.baseLife + event.amount);
                     card.heal(event.amount); // Also heal for the amount of max life gained
                 }
             }
@@ -310,9 +301,9 @@ public class Game {
         int negativeAmount = -Math.abs(event.amount);
         if (event.isPermanent) {
             switch (event.stat.toUpperCase()) {
-                case "ATK" -> card.setBaseAttack(card.getDefinition().getAttack() + negativeAmount);
-                case "DEF" -> card.setBaseDefense(card.getDefinition().getDefense() + negativeAmount);
-                case "MAX_LIFE" -> card.setBaseLife(card.getDefinition().getInitialLife() + negativeAmount);
+                case "ATK" -> card.setBaseAttack(card.baseAttack + negativeAmount);
+                case "DEF" -> card.setBaseDefense(card.baseDefense + negativeAmount);
+                case "MAX_LIFE" -> card.setBaseLife(card.baseLife + negativeAmount);
             }
         } else {
             card.addTemporaryBuff(event.stat, negativeAmount);

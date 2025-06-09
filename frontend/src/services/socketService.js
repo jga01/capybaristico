@@ -6,7 +6,7 @@ import { log } from './loggingService';
 // The hardcoded URL is removed. The connection will now be established
 // relative to the host that served the web page, which is what we want
 // for the reverse proxy to work correctly.
-// const SOCKET_SERVER_URL = 'http://0.0.0.0:9092'; // DELETED
+const SOCKET_SERVER_URL = 'http://localhost:9092';
 
 let socket = null;
 
@@ -19,10 +19,8 @@ export const connectSocket = () => {
     // This now connects to the same host that served the page, using a specific path.
     // On an HTTPS page, this automatically attempts a secure WebSocket (wss://) connection.
     // This path '/socket.io/' must match the 'location' block in your Nginx config.
-    console.log('Attempting to connect to Socket.IO server via current host...');
-    socket = io({
-        path: '/socket.io/'
-    });
+    console.log(`Attempting to connect to Socket.IO server at ${SOCKET_SERVER_URL}...`);
+    socket = io(SOCKET_SERVER_URL); // This is the main change
 
     socket.on('connect', () => {
         const message = 'Socket connected successfully!';

@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = GameStartedEvent.class, name = "GAME_STARTED"),
         @JsonSubTypes.Type(value = TurnStartedEvent.class, name = "TURN_STARTED"),
-        @JsonSubTypes.Type(value = CardDrawnEvent.class, name = "CARD_DRAWN"),
         @JsonSubTypes.Type(value = CardPlayedEvent.class, name = "CARD_PLAYED"),
         @JsonSubTypes.Type(value = AttackDeclaredEvent.class, name = "ATTACK_DECLARED"),
         @JsonSubTypes.Type(value = CombatDamageDealtEvent.class, name = "COMBAT_DAMAGE_DEALT"),

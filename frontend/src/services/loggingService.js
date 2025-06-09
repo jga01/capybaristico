@@ -1,6 +1,15 @@
 let logEntries = [];
 let isInitialized = false;
 
+// NEW: Define log levels
+const LogLevel = {
+    DEBUG: 'DEBUG',
+    INFO: 'INFO',
+    WARN: 'WARN',
+    ERROR: 'ERROR',
+    RENDER: 'RENDER', // Special level for rendering logs
+};
+
 const getTimestamp = () => new Date().toISOString();
 
 // Helper to handle circular structures in JS objects which are common in React state
@@ -26,8 +35,8 @@ const getCircularReplacer = () => {
  */
 export const initLogger = () => {
     logEntries = [];
-    logEntries.push(`[${getTimestamp()}] FRONTEND LOGGER INITIALIZED FOR NEW GAME.`);
     isInitialized = true;
+    log('--- FRONTEND LOGGER INITIALIZED FOR NEW GAME ---', null, LogLevel.INFO);
     console.log("Frontend logger initialized.");
 };
 
@@ -35,11 +44,13 @@ export const initLogger = () => {
  * The main logging function.
  * @param {string} message A description of what is being logged.
  * @param {object} [data=null] Optional data object to be stringified and included.
+ * @param {string} [level=LogLevel.DEBUG] The severity level of the log.
  */
-export const log = (message, data = null) => {
+export const log = (message, data = null, level = LogLevel.DEBUG) => {
     if (!isInitialized) initLogger();
-    
-    let entry = `[${getTimestamp()}] ${message}`;
+
+    // MODIFIED: Include log level in the entry
+    let entry = `[${getTimestamp()}] [${level}] ${message}`;
     if (data) {
         try {
             // Stringify with the circular reference handler and nice formatting
@@ -50,28 +61,35 @@ export const log = (message, data = null) => {
         }
     }
     logEntries.push(entry);
-    
-    // For convenience, also log to the browser console
-    console.log(`[GAME LOG] ${message}`, data);
+
+    // Use corresponding console methods
+    switch (level) {
+        case LogLevel.INFO: console.info(`[GAME LOG] ${message}`, data); break;
+        case LogLevel.WARN: console.warn(`[GAME LOG] ${message}`, data); break;
+        case LogLevel.ERROR: console.error(`[GAME LOG] ${message}`, data); break;
+        default: console.log(`[GAME LOG] ${message}`, data); break;
+    }
 };
 
 /**
  * Creates a downloadable text file from the captured logs.
+ * @param {string} gameId The ID of the game to include in the filename.
  */
-export const downloadLogs = () => {
+export const downloadLogs = (gameId) => {
     if (logEntries.length === 0) {
         alert("No logs have been captured yet.");
         return;
     }
+    log('--- LOGS DOWNLOADED ---', { gameId }, LogLevel.INFO);
     const blob = new Blob([logEntries.join('\n\n========================================\n\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const fileName = `frontend-game-flux-${new Date().toISOString().replace(/:/g, '-')}.log`;
+    // MODIFIED: Include gameId in the filename for correlation with backend logs
+    const fileName = `frontend-game-${gameId}-${new Date().toISOString().replace(/:/g, '-')}.log`;
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    log(`Logs downloaded as ${fileName}`);
 };

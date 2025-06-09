@@ -550,8 +550,11 @@ public class EffectProcessor {
             } catch (IOException e) {
                 /* ignore */ }
         }
-        // Subtract the target's standard defense from the already-modified damage.
-        actualDamage -= target.getCurrentDefense();
+
+        // Subtract defense unless the source ignores it
+        if (!source.getBooleanEffectFlag("ignores_defense_AURA")) {
+            actualDamage -= target.getCurrentDefense();
+        }
 
         // Now, return the final value, ensuring it's not negative.
         return Math.max(0, actualDamage);

@@ -13,9 +13,9 @@ public class CardInstance {
     private final String instanceId;
     private final Card cardDefinition;
     // Base stats from definition
-    private int baseLife;
-    private int baseAttack;
-    private int baseDefense;
+    int baseLife;
+    int baseAttack;
+    int baseDefense;
 
     // Current dynamic state
     private int currentLife;

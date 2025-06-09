@@ -38,14 +38,23 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
     const canvasRef = useRef();
 
     useEffect(() => {
+        log('GameScreen mounted.', { gameId, playerId }, 'INFO');
+        return () => log('GameScreen unmounted.', null, 'INFO');
+    }, [gameId, playerId]);
+
+    useEffect(() => {
         if (!eventBatch || eventBatch.length === 0) return;
+
+        log('Received event batch from server.', { count: eventBatch.length, events: eventBatch }, 'INFO');
 
         const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
         if (turnStartEvent) {
             setShowTurnBanner(true);
+            log('My turn started.', { turnNumber: turnStartEvent.newTurnNumber });
         }
 
         const visualEffects = [];
+        log('Local game state BEFORE applying events.', localGameState);
         const nextState = produce(localGameState, draftState => {
             eventBatch.forEach(event => {
                 applyEventToState(draftState, event, playerId);
@@ -57,16 +66,23 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
             });
         });
 
+        log('Local game state AFTER applying events.', nextState);
         setLocalGameState(nextState);
-        setEffectQueue(prev => [...prev, ...visualEffects]);
+        setEffectQueue(prev => {
+            const newQueue = [...prev, ...visualEffects];
+            log('Effect queue updated.', { added: visualEffects.length, newTotal: newQueue.length });
+            return newQueue;
+        });
     }, [eventBatch, playerId]);
 
     useEffect(() => {
         if (!currentEffect && effectQueue.length > 0) {
             const nextEffect = effectQueue[0];
+            log('Processing next effect from queue.', nextEffect, 'RENDER');
 
             // --- MODIFIED: Handle silent cleanup events immediately ---
             if (nextEffect.type === 'FINAL_CLEANUP') {
+                log('Applying FINAL_CLEANUP state change.', { targetId: nextEffect.targetId }, 'RENDER');
                 setLocalGameState(produce(draft => {
                     applyEventToState(draft, nextEffect, playerId);
                 }));
@@ -78,6 +94,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
             setCurrentEffect(nextEffect);
             if (nextEffect.type === 'ATTACK_LUNGE') {
                 setAttackAnimation({ attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId });
+                log('Starting ATTACK_LUNGE animation.', { attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId }, 'RENDER');
                 setTimeout(() => {
                     setAttackAnimation(null);
                     handleEffectComplete();
@@ -87,14 +104,15 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
     }, [effectQueue, currentEffect, playerId]);
 
     const handleEffectComplete = useCallback(() => {
+        log('Visual effect completed.', currentEffect, 'RENDER');
         setCurrentEffect(null);
         setEffectQueue(prev => prev.slice(1));
-    }, []);
+    }, [currentEffect]);
 
-    // --- MODIFIED: More robust input lock checks the entire queue ---
     const isInputLocked = () => effectQueue.length > 0 || !!currentEffect || !!attackAnimation;
 
     const clearSelections = useCallback(() => {
+        log('Clearing all user selections.');
         setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
         setSelectedHandCardInfo(null);
         setSelectedAttackerInfo(null);
@@ -107,6 +125,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
 
     const handleHTMLCardClickInHand = (cardData) => {
         if (isInputLocked() || !isMyTurn) return;
+        log(`USER_ACTION: Clicked card in hand.`, { cardName: cardData.name, instanceId: cardData.instanceId });
         if (selectedAttackerInfo || selectedAbilitySourceInfo) {
             setFeedbackMessage("Another action is pending. Cancel it first.");
             return;
@@ -121,9 +140,11 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
 
     const handleEmptyFieldSlotClick = (ownerPlayerId, fieldSlotIndex) => {
         if (isInputLocked() || !isMyTurn || !selectedHandCardInfo || ownerPlayerId !== playerId) return;
+        log('USER_ACTION: Clicked empty field slot to play card.', { cardName: selectedHandCardInfo.cardData.name, slot: fieldSlotIndex });
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
         const handCardIndex = viewingPlayer.hand.findIndex(c => c.instanceId === selectedHandCardInfo.instanceId);
         if (handCardIndex === -1) {
+            log("Error: Card to be played not found in local hand state.", { selected: selectedHandCardInfo }, 'ERROR');
             setFeedbackMessage("Error: Card not found in hand.");
             clearSelections();
             return;
@@ -137,11 +158,13 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
 
     const handleCardClickOnField = (cardData, mesh, ownerId, fieldIndex) => {
         if (isInputLocked() || !isMyTurn || !cardData) return;
+        log(`USER_ACTION: Clicked card on field.`, { cardName: cardData.name, ownerId, fieldIndex, isTargetingMode });
         const isOwnCard = ownerId === playerId;
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
         // --- TARGETING LOGIC ---
         if (isTargetingMode) {
+            log('Targeting mode active. Resolving target.', { targetCard: cardData.name });
             if (selectedAttackerInfo) {
                 if (isOwnCard) {
                     setFeedbackMessage("Cannot attack your own card.");
@@ -197,6 +220,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
 
     const handleAbilityOptionSelect = (abilityOpt) => {
         if (isInputLocked() || !selectedAbilitySourceInfo) return;
+        log(`USER_ACTION: Selected ability.`, { cardName: selectedAbilitySourceInfo.cardData.name, ability: abilityOpt.name });
 
         // When an ability is chosen, it becomes the primary action.
         // Clear attack selection and set the ability info.
@@ -217,7 +241,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
         }
     };
 
-    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
+    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { log('USER_ACTION: Clicked End Turn button.'); clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
 
     useEffect(() => { if (showTurnBanner) { const timer = setTimeout(() => setShowTurnBanner(false), 2500); return () => clearTimeout(timer); } }, [showTurnBanner]);
 
@@ -249,7 +273,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
                 player2Name={localGameState.player2State.displayName}
             />
             <div style={{ position: 'absolute', top: 10, right: 15, zIndex: 200 }}>
-                <button onClick={downloadLogs}>Download Logs</button>
+                <button onClick={() => downloadLogs(gameId)}>Download Logs</button>
             </div>
             <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', color: 'white', pointerEvents: 'none', textShadow: '1px 1px 2px black', textAlign: 'center' }}>
                 <p style={{ margin: 0 }}>Turn: {localGameState.turnNumber} | {isMyTurn ? "Your Turn" : "Opponent's Turn"}</p>
@@ -363,7 +387,6 @@ function applyEventToState(draftState, event, viewingPlayerId) {
             }
             break;
         }
-        // --- MODIFIED CASE: Mark card for animation ---
         case 'CARD_DESTROYED': {
             const info = findCardInfo(event.card.instanceId);
             if (info) {
@@ -372,7 +395,6 @@ function applyEventToState(draftState, event, viewingPlayerId) {
             }
             break;
         }
-        // --- NEW CASE: Remove card from state after animation ---
         case 'FINAL_CLEANUP': {
             const info = findCardInfo(event.targetId);
             if (info) {
@@ -452,13 +474,11 @@ function applyEventToState(draftState, event, viewingPlayerId) {
     }
 }
 
-// --- MODIFIED translateEventToEffect ---
 function translateEventToEffect(currentState, event, viewingPlayerId) {
     if (!event) return null;
 
     switch (event.eventType) {
         case 'TURN_STARTED': {
-            // Only create the "un-exhaust" visual effect if it's the viewing player's turn.
             if (event.newTurnPlayerId === viewingPlayerId) {
                 const player = currentState.player1State.playerId === event.newTurnPlayerId ? currentState.player1State : currentState.player2State;
                 const effects = player.field.filter(Boolean).map(card => ({
@@ -466,7 +486,7 @@ function translateEventToEffect(currentState, event, viewingPlayerId) {
                 }));
                 return effects;
             }
-            return null; // Don't show the effect for the opponent's turn start.
+            return null;
         }
         case 'COMBAT_DAMAGE_DEALT':
             if (event.damageAfterDefense > 0) {
@@ -477,18 +497,17 @@ function translateEventToEffect(currentState, event, viewingPlayerId) {
         case 'ATTACK_DECLARED':
             return { type: 'ATTACK_LUNGE', sourceId: event.attackerInstanceId, targetId: event.defenderInstanceId, duration: 1000 };
 
-        // --- MODIFIED CASE: Return an array of effects for sequence ---
         case 'CARD_DESTROYED':
             return [
                 { type: 'CARD_DESTROYED', targetId: event.card.instanceId, duration: 1200 },
-                { type: 'FINAL_CLEANUP', targetId: event.card.instanceId }
+                { type: 'FINAL_CLEANUP', targetId: event.card.instanceId } // This is a state-only event
             ];
 
         case 'CARD_HEALED':
             return { type: 'HEAL', targetId: event.targetInstanceId, amount: event.amount };
 
         case 'CARD_PLAYED':
-            return null;
+            return null; // The card just appears, no special effect needed here
 
         case 'CARD_BUFFED':
             return { type: 'STAT_CHANGE', isBuff: true, targetId: event.targetInstanceId, text: `+${event.amount} ${event.stat}` };

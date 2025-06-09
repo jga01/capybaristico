@@ -21,6 +21,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.ArrayList;
@@ -125,23 +126,29 @@ public class GameSocketHandler {
                 if (disconnectedPlayer != null) {
                     Game game = gameService.getGame(gameOrLobbyId);
                     if (game != null && !game.getGameState().name().contains("GAME_OVER")) {
-                        logger.warn("Player {} ({}) disconnected from active game {}. Triggering forfeit.",
-                                disconnectedPlayer.getDisplayName(), sessionId, gameOrLobbyId);
+                        // Put gameId in MDC for this disconnection event
+                        MDC.put("gameId", game.getGameId());
+                        try {
+                            logger.warn("Player {} ({}) disconnected from active game {}. Triggering forfeit.",
+                                    disconnectedPlayer.getDisplayName(), sessionId, gameOrLobbyId);
 
-                        Player opponent = game.getOpponent(disconnectedPlayer);
-                        if (opponent != null) {
-                            String reason = disconnectedPlayer.getDisplayName() + " has disconnected.";
-                            GameOverCommand forfeitCommand = new GameOverCommand(game.getGameId(),
-                                    opponent.getPlayerId(), reason);
+                            Player opponent = game.getOpponent(disconnectedPlayer);
+                            if (opponent != null) {
+                                String reason = disconnectedPlayer.getDisplayName() + " has disconnected.";
+                                GameOverCommand forfeitCommand = new GameOverCommand(game.getGameId(),
+                                        opponent.getPlayerId(), reason);
 
-                            List<GameEvent> forfeitEvents = gameService.handleCommand(forfeitCommand);
-                            if (!forfeitEvents.isEmpty()) {
-                                List<Map<String, Object>> eventData = convertEventsToMapList(forfeitEvents);
-                                logger.debug("Broadcasting DISCONNECT events to game room {}: {}", game.getGameId(),
-                                        eventData);
-                                server.getRoomOperations(game.getGameId()).sendEvent("game_events", eventData);
-                                cleanupAfterGame(game);
+                                List<GameEvent> forfeitEvents = gameService.handleCommand(forfeitCommand);
+                                if (!forfeitEvents.isEmpty()) {
+                                    List<Map<String, Object>> eventData = convertEventsToMapList(forfeitEvents);
+                                    logger.debug("Broadcasting DISCONNECT events to game room {}: {}", game.getGameId(),
+                                            eventData);
+                                    server.getRoomOperations(game.getGameId()).sendEvent("game_events", eventData);
+                                    cleanupAfterGame(game);
+                                }
                             }
+                        } finally {
+                            MDC.remove("gameId"); // Clean up MDC
                         }
                     }
                 }
@@ -235,34 +242,41 @@ public class GameSocketHandler {
             String creatorDisplayName = targetLobby.getCreatorDisplayName();
             Game game = gameService.createNewGame(creatorDisplayName, joinerDisplayName);
             String gameId = game.getGameId();
-            Player p1 = game.getPlayer1();
-            Player p2 = game.getPlayer2();
 
-            clientToPlayerMap.put(creatorClient.getSessionId(), p1);
-            clientToGameOrLobbyIdMap.put(creatorClient.getSessionId(), gameId);
-            creatorClient.leaveRoom(lobbyIdToJoin);
-            creatorClient.joinRoom(gameId);
+            // Set MDC for the game starting logs
+            MDC.put("gameId", gameId);
+            try {
+                Player p1 = game.getPlayer1();
+                Player p2 = game.getPlayer2();
 
-            clientToPlayerMap.put(joinerSessionId, p2);
-            clientToGameOrLobbyIdMap.put(joinerSessionId, gameId);
-            client.joinRoom(gameId);
+                clientToPlayerMap.put(creatorClient.getSessionId(), p1);
+                clientToGameOrLobbyIdMap.put(creatorClient.getSessionId(), gameId);
+                creatorClient.leaveRoom(lobbyIdToJoin);
+                creatorClient.joinRoom(gameId);
 
-            logger.info("Game {} ready. P1: {}, P2: {}. Broadcasting initial state and starting events.", gameId,
-                    p1.getDisplayName(), p2.getDisplayName());
+                clientToPlayerMap.put(joinerSessionId, p2);
+                clientToGameOrLobbyIdMap.put(joinerSessionId, gameId);
+                client.joinRoom(gameId);
 
-            List<GameEvent> startEvents = gameService.startGame(game);
+                logger.info("Game ready. P1: {}, P2: {}. Broadcasting initial state and starting events.",
+                        p1.getDisplayName(), p2.getDisplayName());
 
-            GameStateResponse p1InitialState = GameStateMapper.createGameStateResponse(game, p1.getPlayerId());
-            logger.debug("-> Sending 'game_ready' to P1 ({})", p1.getDisplayName());
-            creatorClient.sendEvent("game_ready", p1InitialState);
+                List<GameEvent> startEvents = gameService.startGame(game);
 
-            GameStateResponse p2InitialState = GameStateMapper.createGameStateResponse(game, p2.getPlayerId());
-            logger.debug("-> Sending 'game_ready' to P2 ({})", p2.getDisplayName());
-            client.sendEvent("game_ready", p2InitialState);
+                GameStateResponse p1InitialState = GameStateMapper.createGameStateResponse(game, p1.getPlayerId());
+                logger.debug("-> Sending 'game_ready' to P1 ({})", p1.getDisplayName());
+                creatorClient.sendEvent("game_ready", p1InitialState);
 
-            List<Map<String, Object>> eventData = convertEventsToMapList(startEvents);
-            logger.debug("-> Broadcasting STARTUP events to game room {}: {}", gameId, eventData);
-            server.getRoomOperations(gameId).sendEvent("game_events", eventData);
+                GameStateResponse p2InitialState = GameStateMapper.createGameStateResponse(game, p2.getPlayerId());
+                logger.debug("-> Sending 'game_ready' to P2 ({})", p2.getDisplayName());
+                client.sendEvent("game_ready", p2InitialState);
+
+                List<Map<String, Object>> eventData = convertEventsToMapList(startEvents);
+                logger.debug("-> Broadcasting STARTUP events to game room: {}", eventData);
+                server.getRoomOperations(gameId).sendEvent("game_events", eventData);
+            } finally {
+                MDC.remove("gameId");
+            }
         };
     }
 
@@ -287,11 +301,15 @@ public class GameSocketHandler {
     private DataListener<Map> onGameCommandReceived() {
         return (client, data, ackSender) -> {
             UUID sessionId = client.getSessionId();
-            logger.trace("RAW << game_command from [{}]: {}", sessionId, data);
-
-            GameCommand command;
+            GameCommand command = null;
             try {
+                // Deserialize first to get the gameId for MDC
                 command = objectMapper.convertValue(data, GameCommand.class);
+
+                // Put gameId into the Mapped Diagnostic Context for logging
+                MDC.put("gameId", command.gameId);
+
+                logger.trace("RAW << game_command from [{}]: {}", sessionId, data);
                 logger.debug("<< Parsed [game_command] from {}: Type: {}, Payload: {}", sessionId,
                         command.getCommandType(), data);
 
@@ -302,7 +320,7 @@ public class GameSocketHandler {
                         || !command.gameId.equals(expectedGameId)) {
                     logger.warn("Session {} sent an unauthorized command. Denying.", sessionId);
                     client.sendEvent("command_rejected", "Authorization failed for command.");
-                    return;
+                    return; // Return within the try block
                 }
 
                 List<GameEvent> resultingEvents = gameService.handleCommand(command);
@@ -311,11 +329,10 @@ public class GameSocketHandler {
                     logger.warn("Command {} from session {} resulted in NO events. Action was likely invalid.",
                             command.getCommandType(), sessionId);
                     client.sendEvent("command_rejected", "Your action was invalid or had no effect.");
-                    return;
+                    return; // Return within the try block
                 }
 
-                logger.debug("CMD PROCESSED for game {}. Generated {} events.", command.gameId,
-                        resultingEvents.size());
+                logger.debug("CMD PROCESSED. Generated {} events.", resultingEvents.size());
 
                 // ----- MODIFICATION START -----
                 // Instead of broadcasting, we find each client and send a tailored event list.
@@ -326,8 +343,8 @@ public class GameSocketHandler {
                         if (p != null) {
                             List<GameEvent> tailoredEvents = tailorEventsForPlayer(resultingEvents, p.getPlayerId());
                             List<Map<String, Object>> tailoredEventData = convertEventsToMapList(tailoredEvents);
-                            logger.trace(">> Sending tailored 'game_events' to {}: {}", p.getDisplayName(),
-                                    tailoredEventData);
+                            logger.trace(">> Sending {} tailored 'game_events' to {} ({}): {}", tailoredEvents.size(),
+                                    p.getDisplayName(), c.getSessionId(), tailoredEventData);
                             c.sendEvent("game_events", tailoredEventData);
                         } else {
                             logger.warn("Could not find player mapping for client {} in game {}", c.getSessionId(),
@@ -344,6 +361,9 @@ public class GameSocketHandler {
             } catch (Exception e) {
                 logger.error("Error processing game_command from session {}. Data: {}", sessionId, data, e);
                 client.sendEvent("command_rejected", "Internal server error processing your command.");
+            } finally {
+                // Ensure the MDC is cleared, regardless of success or failure
+                MDC.remove("gameId");
             }
         };
     }
@@ -362,15 +382,21 @@ public class GameSocketHandler {
 
     private void cleanupAfterGame(Game game) {
         String gameId = game.getGameId();
-        logger.info("Cleaning up sockets and mappings for ended game {}", gameId);
+        // Set MDC for cleanup logs to go to the correct file
+        MDC.put("gameId", gameId);
+        try {
+            logger.info("Cleaning up sockets and mappings for ended game {}", gameId);
 
-        server.getRoomOperations(gameId).getClients().forEach(client -> {
-            clientToPlayerMap.remove(client.getSessionId());
-            clientToGameOrLobbyIdMap.remove(client.getSessionId());
-            client.leaveRoom(gameId);
-            logger.debug("Client {} removed from game {} mappings and room.", client.getSessionId(), gameId);
-        });
-        gameService.removeGame(gameId);
+            server.getRoomOperations(gameId).getClients().forEach(client -> {
+                clientToPlayerMap.remove(client.getSessionId());
+                clientToGameOrLobbyIdMap.remove(client.getSessionId());
+                client.leaveRoom(gameId);
+                logger.debug("Client {} removed from game {} mappings and room.", client.getSessionId(), gameId);
+            });
+            gameService.removeGame(gameId);
+        } finally {
+            MDC.remove("gameId");
+        }
     }
 
     public static class CreateLobbyRequest {
