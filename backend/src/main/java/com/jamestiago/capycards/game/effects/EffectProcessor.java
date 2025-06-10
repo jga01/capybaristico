@@ -339,8 +339,12 @@ public class EffectProcessor {
             Player owner, Map<String, Object> context) {
         // This action does not generate events. It directly mutates the simulation
         // state's aura buffs.
-        // The final state change will be captured by a single CardStatsChangedEvent
-        // later.
+
+        // START: ADDITIONS
+        ValueResolver resolver = new ValueResolver();
+        Map<String, Object> valueResolutionContext = new HashMap<>(context);
+        valueResolutionContext.put("game", game);
+        // END: ADDITIONS
 
         List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
                 context, game);
@@ -351,7 +355,16 @@ public class EffectProcessor {
             if (buffs != null) {
                 for (Map<String, Object> buff : buffs) {
                     String stat = (String) buff.get("stat");
-                    Integer amount = (Integer) buff.get("amount");
+
+                    // --- START: MODIFICATION ---
+                    Object amountSource = buff.get("amount"); // Get the raw value (Integer or Map)
+                    // When resolving value for an aura on a target, the "SELF" context within the
+                    // value
+                    // should refer to the card being buffed (the target), not the source of the
+                    // aura.
+                    Integer amount = resolver.resolveValue(amountSource, target, owner, valueResolutionContext);
+                    // --- END: MODIFICATION ---
+
                     if (stat != null && amount != null) {
                         target.addAuraBuff(stat, amount);
                     }

@@ -270,12 +270,13 @@ function App() {
   if (isInLobbyOrGame && gameId && playerId && initialGameState && !isGameOver && assetsLoaded) {
     return (
       <div className="App game-active" style={{ width: '100vw', height: '100vh', padding: 0, margin: 0, overflow: 'hidden', position: 'relative', background: '#1a1d21' }}>
-        {commandErrorMsg && <p className="app-level-error-bar">Action Error: {commandErrorMsg}</p>}
         <GameScreen
           initialGameState={initialGameState}
           playerId={playerId}
           gameId={gameId}
           eventBatch={eventBatch}
+          commandError={commandErrorMsg}
+          clearCommandError={() => setCommandErrorMsg('')}
         />
       </div>
     );

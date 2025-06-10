@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Service
 public class GameService {
@@ -575,10 +576,15 @@ public class GameService {
     if (allCardDefinitions == null || allCardDefinitions.isEmpty()) {
       throw new IllegalStateException("Card definitions not loaded.");
     }
-    // Simple deck generation for now, can be replaced with user deck logic later
+    // FIX: Filter out cards that are not directly playable from the deck pool
+    List<Card> playableCards = allCardDefinitions.stream()
+        .filter(Card::isDirectlyPlayable)
+        .collect(Collectors.toList());
+
     List<Card> deckInProgress = new ArrayList<>();
+    // Now use the filtered list to build the deck
     for (int i = 0; i < 20; i++) {
-      deckInProgress.add(allCardDefinitions.get(i % allCardDefinitions.size()));
+      deckInProgress.add(playableCards.get(i % playableCards.size()));
     }
     java.util.Collections.shuffle(deckInProgress);
     return deckInProgress;

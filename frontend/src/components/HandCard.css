@@ -50,3 +50,13 @@
     display: block;
     border-radius: 3px;
 }
+
+.html-hand-card.unplayable {
+    filter: grayscale(80%) brightness(0.7);
+    cursor: not-allowed;
+}
+
+.html-hand-card.unplayable:hover {
+    transform: none;
+    border-color: transparent;
+}

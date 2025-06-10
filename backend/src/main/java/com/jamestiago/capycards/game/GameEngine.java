@@ -386,11 +386,15 @@ public class GameEngine {
         Player nextPlayer = tempGame.getOpponent(endingPlayer);
         int currentTurnNumber = game.getTurnNumber();
 
+        // --- START FIX ---
+        // Check for deck out condition BEFORE starting the new turn.
         if (nextPlayer.getDeck().isEmpty() && nextPlayer.getHand().isEmpty()) {
-            String reason = nextPlayer.getDisplayName() + " has no cards left to draw.";
+            String reason = nextPlayer.getDisplayName() + " has run out of cards and cannot draw.";
             events.add(new GameOverEvent(game.getGameId(), currentTurnNumber + 1, endingPlayer.getPlayerId(), reason));
+            // Return immediately as the game is over.
             return new CommandResult(events, tempGame);
         }
+        // --- END FIX ---
 
         TurnStartedEvent startedEvent = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
                 nextPlayer.getPlayerId());
@@ -435,9 +439,11 @@ public class GameEngine {
             changed = false;
             List<CardInstance> cardsToCheck = new ArrayList<>();
             if (simulatedGame.getPlayer1() != null)
-                cardsToCheck.addAll(simulatedGame.getPlayer1().getField().stream().filter(c -> c != null).toList());
+                cardsToCheck
+                        .addAll(simulatedGame.getPlayer1().getFieldInternal().stream().filter(c -> c != null).toList());
             if (simulatedGame.getPlayer2() != null)
-                cardsToCheck.addAll(simulatedGame.getPlayer2().getField().stream().filter(c -> c != null).toList());
+                cardsToCheck
+                        .addAll(simulatedGame.getPlayer2().getFieldInternal().stream().filter(c -> c != null).toList());
 
             for (CardInstance cardInSim : cardsToCheck) {
                 if (cardInSim.isDestroyed()) {
@@ -449,20 +455,11 @@ public class GameEngine {
 
                     if (!alreadyProcessed) {
                         Player owner = simulatedGame.getOwnerOfCardInstance(cardInSim);
-                        if (owner == null) {
-                            logger.warn(
-                                    "Could not find owner for destroyed card {} in temp state. Skipping death triggers.",
-                                    cardInSim.getInstanceId());
+                        if (owner == null)
                             continue;
-                        }
 
-                        CardDestroyedEvent destroyEvent = new CardDestroyedEvent(simulatedGame.getGameId(),
-                                simulatedGame.getTurnNumber(), GameStateMapper.mapCardInstanceToDTO(cardInSim),
-                                owner.getPlayerId());
-                        deathEvents.add(destroyEvent);
-                        simulatedGame.apply(destroyEvent);
-                        changed = true;
-
+                        // --- START FIX ---
+                        // 1. Process ON_DEATH triggers FIRST, while the card is still on the field.
                         CardInstance killer = cardInSim.getLastDamageSourceCard();
                         Map<String, Object> deathContext = new HashMap<>();
                         if (killer != null) {
@@ -476,21 +473,18 @@ public class GameEngine {
                         for (GameEvent triggerEvent : onDeathTriggers) {
                             deathEvents.add(triggerEvent);
                             simulatedGame.apply(triggerEvent);
-
-                            if (triggerEvent instanceof CombatDamageDealtEvent damageFromEffect) {
-                                CardInstance damageSource = simulatedGame
-                                        .findCardInstanceFromAnyField(damageFromEffect.attackerInstanceId);
-                                CardInstance damageTarget = simulatedGame
-                                        .findCardInstanceFromAnyField(damageFromEffect.defenderInstanceId);
-
-                                if (damageSource != null && damageTarget != null) {
-                                    List<GameEvent> damageObserverEvents = processDamageTriggers(damageSource,
-                                            damageTarget, damageFromEffect.damageAfterDefense, simulatedGame);
-                                    deathEvents.addAll(damageObserverEvents);
-                                }
-                            }
                         }
 
+                        // 2. NOW, create and apply the CardDestroyedEvent.
+                        CardDestroyedEvent destroyEvent = new CardDestroyedEvent(simulatedGame.getGameId(),
+                                simulatedGame.getTurnNumber(), GameStateMapper.mapCardInstanceToDTO(cardInSim),
+                                owner.getPlayerId());
+                        deathEvents.add(destroyEvent);
+                        simulatedGame.apply(destroyEvent);
+                        changed = true;
+
+                        // 3. Process ON_DEATH_OF_ANY for all other cards AFTER the card is officially
+                        // destroyed.
                         List<CardInstance> observers = new ArrayList<>(cardsToCheck);
                         for (CardInstance observerCard : observers) {
                             if (!observerCard.getInstanceId().equals(cardInSim.getInstanceId())) {
@@ -509,6 +503,7 @@ public class GameEngine {
                                 }
                             }
                         }
+                        // --- END FIX ---
                     }
                 }
             }

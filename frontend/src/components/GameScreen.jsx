@@ -8,19 +8,23 @@ import { MAX_ATTACKS_PER_TURN } from '../constants';
 import './HandCard.css';
 import MagnifiedCardView from './MagnifiedCardView';
 
-const HTMLHandCard = ({ cardData, onClick, onMagnify, isSelected }) => (
-    <div
-        className={`html-hand-card ${isSelected ? 'selected' : ''}`}
-        onClick={() => onClick(cardData)}
-        onContextMenu={(e) => { e.preventDefault(); onMagnify(cardData); }}
-        title={`${cardData.name}\nL:${cardData.currentLife} A:${cardData.currentAttack} D:${cardData.currentDefense}\nEffect: ${cardData.effectText?.substring(0, 100)}...`}
-    >
-        <img src={cardData.imageUrl ? (cardData.imageUrl.startsWith('/') ? cardData.imageUrl : `/assets/cards_images/${cardData.imageUrl}`) : '/assets/cards_images/back.png'} alt={cardData.name} />
-    </div>
-);
+const HTMLHandCard = ({ cardData, onClick, onMagnify, isSelected }) => {
+    const isPlayable = cardData.isDirectlyPlayable !== false;
+
+    return (
+        <div
+            className={`html-hand-card ${isSelected ? 'selected' : ''} ${!isPlayable ? 'unplayable' : ''}`}
+            onClick={() => isPlayable && onClick(cardData)}
+            onContextMenu={(e) => { e.preventDefault(); onMagnify(cardData); }}
+            title={`${cardData.name}${!isPlayable ? ' (Cannot be played from hand)' : ''}\nL:${cardData.currentLife} A:${cardData.currentAttack} D:${cardData.currentDefense}`}
+        >
+            <img src={cardData.imageUrl ? `/assets/cards_images/${cardData.imageUrl}` : '/assets/cards_images/back.png'} alt={cardData.name} />
+        </div>
+    );
+};
 
 
-const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
+const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandError, clearCommandError }) => {
     const [localGameState, setLocalGameState] = useState(initialGameState);
     const [selectedHandCardInfo, setSelectedHandCardInfo] = useState(null);
     const [selectedAttackerInfo, setSelectedAttackerInfo] = useState(null);
@@ -55,6 +59,18 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch }) => {
         });
         return cardInfo;
     }, []);
+
+    useEffect(() => {
+        if (commandError) {
+            setFeedbackMessage(`❗ ${commandError}`); // Show the error
+            const timer = setTimeout(() => {
+                clearCommandError(); // Clear state in parent
+                setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn."); // Reset
+            }, 4000); // Display for 4 seconds
+
+            return () => clearTimeout(timer);
+        }
+    }, [commandError, clearCommandError, isMyTurn, localGameState.currentPlayerId]);
 
     useEffect(() => {
         log('GameScreen mounted.', { gameId, playerId }, 'INFO');
