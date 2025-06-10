@@ -19,12 +19,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Service
 public class GameService {
   private static final Logger logger = LoggerFactory.getLogger(GameService.class);
   private final Map<String, Game> activeGames = new ConcurrentHashMap<>();
+  private final Map<String, Lock> gameLocks = new ConcurrentHashMap<>();
   private List<Card> allCardDefinitions;
   private final CardRepository cardRepository;
   private final GameEngine gameEngine;
@@ -63,8 +66,26 @@ public class GameService {
         "Heals +1 life whenever another card is damaged. At 50 life, ATK becomes 50, but killing any card causes her to die. Dies instantly if she damages a Capybara.",
         """
             [
-              {"trigger":"ON_DAMAGE_TAKEN_OF_ANY","action":"HEAL_TARGET","params":{"targets":"SELF","amount":1}},
-              {"trigger":"ON_DAMAGE_TAKEN","condition":{"type":"VALUE_COMPARISON","params":{"sourceValue":{"source":"STAT","statName":"LIFE","cardContext":"SELF"},"operator":"GREATER_THAN","targetValue":49}}, "action":"APPLY_FLAG","params":{"targets":"SELF","flagName":"kahina_frenzy","value":true}}
+              {"trigger":"ON_DAMAGE_TAKEN_OF_ANY","condition":{"type":"TRIGGER_SOURCE_IS_SELF","params":{}},"action":"HEAL_TARGET","params":{"targets":"SELF","amount":1}},
+              {"trigger":"ON_DAMAGE_DEALT", "condition": {"type":"TARGET_HAS_TYPE", "params": {"typeName": "Capybara"}}, "action":"DESTROY_CARD", "params": {"targets":"SELF"}},
+              {
+                "trigger":"CONTINUOUS_AURA",
+                "condition":{"type":"VALUE_COMPARISON", "params":{"sourceValue":{"source":"STAT", "statName":"LIFE", "cardContext":"SELF"}, "operator":"GREATER_THAN", "targetValue":49}},
+                "action":"APPLY_AURA_BUFF",
+                "params":{
+                  "targets":"SELF",
+                  "buffs":[{"stat":"ATK", "amount": 50}],
+                  "flags":{"kahina_frenzy_AURA": true}
+                }
+              },
+              {
+                "trigger":"ON_DAMAGE_DEALT",
+                "condition":{"type":"ALL_OF", "conditions":[
+                  {"type":"SELF_HAS_FLAG", "params":{"flagName":"kahina_frenzy_AURA"}},
+                  {"type":"TARGET_IS_DESTROYED"}
+                ]},
+                "action":"DESTROY_CARD", "params":{"targets":"SELF"}
+              }
             ]
             """,
         Rarity.SUPER_RARE, "kahina.png",
@@ -73,21 +94,30 @@ public class GameService {
         "On entry and death, deals 4 AoE damage (including self). If dies to own effect, returns next turn. Gains +10 life if damages an American (once).",
         """
             [
-                  {"trigger":"ON_PLAY","action":"DEAL_DAMAGE","params":{"targets":"ALL_CARDS_ON_FIELD", "amount": 4}},
-                  {"trigger":"ON_DEATH","action":"DEAL_DAMAGE","params":{"targets":"ALL_CARDS_ON_FIELD", "amount": 4}},
-                  {
-                    "trigger": "ON_DEATH",
-                    "condition": {"type": "TRIGGER_SOURCE_IS_SELF"},
-                    "action": "SCHEDULE_ACTION",
-                    "params": {
-                      "delayInTurns": 2,
-                      "scheduledEffect": {
-                        "action": "REAPPEAR",
-                        "params": {}
-                      }
-                    }
-                  }
-                ]""",
+              {"trigger":"ON_PLAY","action":"DEAL_DAMAGE","params":{"targets":"ALL_CARDS_ON_FIELD", "amount": 4}},
+              {"trigger":"ON_DEATH","action":"DEAL_DAMAGE","params":{"targets":"ALL_CARDS_ON_FIELD", "amount": 4}},
+              {
+                "trigger": "ON_DEATH",
+                "condition": {"type": "TRIGGER_SOURCE_IS_SELF"},
+                "action": "SCHEDULE_ACTION",
+                "params": {
+                  "delayInTurns": 2,
+                  "scheduledEffect": { "action": "REAPPEAR" }
+                }
+              },
+              {
+                "trigger": "ON_DAMAGE_DEALT",
+                "condition": { "type":"ALL_OF", "conditions": [
+                  {"type": "TARGET_HAS_TYPE", "params": {"typeName": "American"}},
+                  {"type": "SELF_HAS_FLAG", "params": {"flagName": "american_bonus_claimed", "mustBeAbsent": true}}
+                ]},
+                "action":"CHAINED_EFFECTS",
+                "params":{ "effects": [
+                  {"action":"BUFF_STAT", "params": {"targets":"SELF", "stat":"MAX_LIFE", "amount": 10, "isPermanent": true}},
+                  {"action":"APPLY_FLAG", "params": {"targets":"SELF", "flagName": "american_bonus_claimed", "value": true}}
+                ]}
+              }
+            ]""",
         Rarity.SUPER_RARE, "train.png", "The ride never ends."));
     cardsToSeed.add(new Card("CAP003", "Leonico", "Femboy", 3, 0, 20,
         "Immune to all damage. If a European card is played, becomes ATK 1 / DEF 5 / LIFE 5. Gains +2 damage vs Indigenous and Capybara. Dies instantly if attacked by European.",
@@ -100,13 +130,16 @@ public class GameService {
                 "action": "CHAINED_EFFECTS",
                 "params": {
                   "effects": [
-                    {"action": "APPLY_FLAG", "params": {"targets": "SELF", "flagName": "transformed_by_european", "value": true}},
-                    {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "MAX_LIFE", "amount": 2, "isPermanent": true}},
-                    {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "ATK", "amount": 1, "isPermanent": true}},
-                    {"action": "DEBUFF_STAT", "params": {"targets": "SELF", "stat": "DEF", "amount": 15, "isPermanent": true}}
+                    {"action": "SET_STAT", "params": {"targets": "SELF", "stat": "MAX_LIFE", "value": 5}},
+                    {"action": "SET_STAT", "params": {"targets": "SELF", "stat": "LIFE", "value": 5}},
+                    {"action": "SET_STAT", "params": {"targets": "SELF", "stat": "ATK", "value": 1}},
+                    {"action": "SET_STAT", "params": {"targets": "SELF", "stat": "DEF", "value": 5}}
                   ]
                 }
-              }
+              },
+              {"trigger":"ON_DEFEND", "condition":{"type":"SOURCE_HAS_TYPE", "params":{"typeName":"European"}}, "action":"DESTROY_CARD", "params":{"targets":"SELF"}},
+              {"trigger":"CONTINUOUS_OFFENSIVE", "condition":{"type":"TARGET_HAS_TYPE", "params":{"typeName":"Indigenous"}}, "action":"MODIFY_OUTGOING_DAMAGE", "params":{"mode":"ADD_FLAT", "amount":2}},
+              {"trigger":"CONTINUOUS_OFFENSIVE", "condition":{"type":"TARGET_HAS_TYPE", "params":{"typeName":"Capybara"}}, "action":"MODIFY_OUTGOING_DAMAGE", "params":{"mode":"ADD_FLAT", "amount":2}}
             ]
             """,
         Rarity.UNCOMMON, "leonico.png",
@@ -117,18 +150,16 @@ public class GameService {
             [
               {
                 "trigger": "ON_DAMAGE_DEALT",
-                "condition": {"type": "TARGET_IS_DESTROYED"},
+                "condition": { "type":"ALL_OF", "conditions": [
+                    {"type":"TARGET_IS_DESTROYED"},
+                    {"type":"TARGET_HAS_TYPE", "params":{"typeName":"European", "mustBeAbsent":true}},
+                    {"type":"TARGET_HAS_TYPE", "params":{"typeName":"Capybara", "mustBeAbsent":true}}
+                ]},
                 "action": "CHAINED_EFFECTS",
                 "params": {
                   "effects": [
-                    {
-                      "action": "APPLY_FLAG",
-                      "params": {"targets": "SELF", "flagName": "canAttackAgainThisTurn", "value": true, "duration": "TURN"}
-                    },
-                    {
-                      "action": "MODIFY_FLAG",
-                      "params": {"targets": "SELF", "flagName": "killStreakThisTurn", "mode": "INCREMENT", "amount": 1}
-                    }
+                    {"action": "APPLY_FLAG", "params": {"targets": "SELF", "flagName": "canAttackAgainThisTurn", "value": true, "duration": "TURN"}},
+                    {"action": "MODIFY_FLAG", "params": {"targets": "SELF", "flagName": "killStreakThisTurn", "mode": "INCREMENT", "amount": 1}}
                   ]
                 }
               },
@@ -148,10 +179,7 @@ public class GameService {
                     {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "DEF", "amount": 4, "isPermanent": true}},
                     {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "MAX_LIFE", "amount": 8, "isPermanent": true}},
                     {"action": "DEBUFF_STAT", "params": {"targets": "SELF", "stat": "ATK", "amount": 4, "isPermanent": true}},
-                    {
-                      "action": "MODIFY_FLAG",
-                      "params": {"targets": "SELF", "flagName": "killStreakThisTurn", "mode": "SET", "amount": 0}
-                    }
+                    {"action": "MODIFY_FLAG", "params": {"targets": "SELF", "flagName": "killStreakThisTurn", "mode": "SET", "amount": 0}}
                   ]
                 }
               }
@@ -167,6 +195,12 @@ public class GameService {
               {"trigger":"ON_DEATH","condition":{"type":"SELF_HAS_FLAG","params":{"flagName":"swettie_side_b_used","mustBeAbsent":true}}, "action":"CHAINED_EFFECTS", "params": { "effects": [
                 {"action":"HEAL_TARGET", "params": {"targets":"SELF", "amount": 999}},
                 {"action":"APPLY_FLAG", "params": {"targets":"SELF", "flagName": "swettie_side_b_used", "value": true}}
+              ]}},
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Scottish Von", "description":"Lose half your current life to restore your other side. (Once per game)", "requiresTarget":"NONE", "condition":{"type":"SELF_HAS_FLAG", "params":{"flagName":"scottish_von_used", "mustBeAbsent":true}}, "action":"CHAINED_EFFECTS", "params": {"effects":[
+                {"action":"DEAL_DAMAGE", "params":{"targets":"SELF", "amount": {"source":"STAT", "statName":"LIFE", "cardContext":"SELF", "multiplier":0.5}}},
+                {"action":"HEAL_TARGET", "params":{"targets":"SELF", "amount":999}},
+                {"action":"APPLY_FLAG", "params":{"targets":"SELF", "flagName":"swettie_side_b_used", "value":true}},
+                {"action":"APPLY_FLAG", "params":{"targets":"SELF", "flagName":"scottish_von_used", "value":true}}
               ]}}
             ]
             """,
@@ -211,7 +245,7 @@ public class GameService {
         """
             [
               {"trigger": "CONTINUOUS_AURA", "condition": {"type": "FRIENDLY_CARD_IN_PLAY", "params": {"cardId": "CAP008"}}, "action": "APPLY_AURA_BUFF", "params": {"targets": "SELF", "buffs": [{"stat": "MAX_LIFE", "amount": 10}, {"stat": "ATK", "amount": 1}]}},
-              {"trigger": "CONTINUOUS_AURA", "action": "APPLY_AURA_BUFF", "params": {"targets": "FRIENDLY_CARD_WITH_ID", "context": {"cardId": "CAP008"}, "buffs": [{"stat": "MAX_LIFE", "amount": 10}, {"stat": "ATK", "amount": 1}]}}
+              {"trigger": "CONTINUOUS_AURA", "condition": {"type": "FRIENDLY_CARD_IN_PLAY", "params": {"cardId": "CAP008"}}, "action": "APPLY_AURA_BUFF", "params": {"targets": "FRIENDLY_CARD_WITH_ID", "context": {"cardId": "CAP008"}, "buffs": [{"stat": "MAX_LIFE", "amount": 10}, {"stat": "ATK", "amount": 1}]}}
             ]
             """,
         Rarity.COMMON, "totem.png",
@@ -220,8 +254,10 @@ public class GameService {
         "+2 damage from Kahina or Swettie. +5 DEF from American/Capybara damage.",
         """
             [
-              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":5}},
-              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":5}}
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_CARD_ID","params":{"cardId":"CAP001"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"ADD_FLAT","amount":2}},
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_CARD_ID","params":{"cardId":"CAP005"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"ADD_FLAT","amount":2}},
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":-5}},
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":-5}}
             ]
             """,
         Rarity.UNCOMMON,
@@ -230,18 +266,13 @@ public class GameService {
         "Can’t attack unless Caioba is in play. If attacked while Caioba is NOT in play, dies instantly. With Caioba, gets double DEF.",
         """
             [
-              {"trigger":"ON_DAMAGE_TAKEN","condition":{"type":"FRIENDLY_CARD_IN_PLAY","params":{"cardId":"CAP016", "mustBeAbsent": true}}, "action":"DESTROY_CARD", "params":{"targets":"SELF"}},
-              {"trigger":"CONTINUOUS_AURA", "condition":{"type":"FRIENDLY_CARD_IN_PLAY", "params":{"cardId":"CAP016"}}, "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"DEF", "amount":{"source":"STAT", "statName":"DEF", "cardContext":"SELF"}}]}},
+              {"trigger":"ON_DEFEND","condition":{"type":"FRIENDLY_CARD_IN_PLAY","params":{"cardId":"CAP016", "mustBeAbsent": true}}, "action":"DESTROY_CARD", "params":{"targets":"SELF"}},
+              {"trigger":"CONTINUOUS_AURA", "condition":{"type":"FRIENDLY_CARD_IN_PLAY", "params":{"cardId":"CAP016"}}, "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"DEF", "amount":{"source":"STAT", "statName":"BASE_DEF", "cardContext":"SELF"}}]}},
               {
                 "trigger": "CONTINUOUS_AURA",
                 "condition": {"type": "FRIENDLY_CARD_IN_PLAY", "params": {"cardId": "CAP016", "mustBeAbsent": true}},
                 "action": "APPLY_AURA_BUFF",
-                "params": {
-                  "targets": "SELF",
-                  "flags": {
-                    "status_cannot_attack_AURA": true
-                  }
-                }
+                "params": { "targets": "SELF", "flags": { "status_cannot_attack_AURA": true } }
               }
             ]
             """,
@@ -265,58 +296,30 @@ public class GameService {
             [
               {
                 "trigger": "CONTINUOUS_AURA",
-                "condition": {
-                  "type": "VALUE_COMPARISON",
-                  "params": {
+                "condition": { "type": "VALUE_COMPARISON", "params": {
                     "sourceValue": {"source": "DYNAMIC_COUNT", "countType": "OTHER_FRIENDLY_CARDS"},
-                    "operator": "GREATER_THAN",
-                    "targetValue": 0
-                  }
-                },
-                "action": "APPLY_AURA_BUFF",
-                "params": {
-                  "targets": "SELF",
-                  "flags": { "status_cannot_be_targeted_AURA": true }
-                }
+                    "operator": "GREATER_THAN", "targetValue": 0
+                }},
+                "action": "APPLY_AURA_BUFF", "params": { "targets": "SELF", "flags": { "status_cannot_be_targeted_AURA": true } }
+              },
+              {
+                "trigger":"CONTINUOUS_AURA", "condition":{"type":"TARGET_HAS_TYPE", "params":{"typeName":"Capybara"}},
+                "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "flags":{"ignores_defense_AURA":true}}
+              },
+              {
+                "trigger": "START_OF_TURN_SELF", "action": "MODIFY_FLAG", "params": { "targets": "SELF", "flagName": "turnsOnField", "mode": "INCREMENT" }
               },
               {
                 "trigger": "START_OF_TURN_SELF",
-                "action": "MODIFY_FLAG",
-                "params": {
-                  "targets": "SELF",
-                  "flagName": "turnsOnField",
-                  "mode": "INCREMENT"
-                }
-              },
-              {
-                "trigger": "START_OF_TURN_SELF",
-                "condition": {
-                  "type": "VALUE_COMPARISON",
-                  "params": {
-                    "sourceValue": {
-                      "source": "FLAG_VALUE",
-                      "flagName": "turnsOnField",
-                      "cardContext": "SELF"
-                    },
-                    "operator": "EQUALS",
-                    "targetValue": 5
-                  }
-                },
+                "condition": { "type": "VALUE_COMPARISON", "params": { "sourceValue": { "source": "FLAG_VALUE", "flagName": "turnsOnField", "cardContext": "SELF" }, "operator": "EQUALS", "targetValue": 5 }},
                 "action": "CHAINED_EFFECTS",
-                "params": {
-                  "effects": [
+                "params": { "effects": [
                     {"action": "VANISH", "params": {}},
-                    {
-                      "action": "SCHEDULE_ACTION",
-                      "params": {
-                        "delayInTurns": 6,
-                        "scheduledEffect": {
-                          "action": "REAPPEAR"
-                        }
-                      }
-                    }
-                  ]
-                }
+                    {"action": "SCHEDULE_ACTION", "params": { "delayInTurns": 3, "scheduledEffect": { "action": "CHAINED_EFFECTS", "params": { "effects": [
+                        {"action":"REAPPEAR"},
+                        {"action":"BUFF_STAT", "params":{"targets":"SELF", "stat":"ATK", "amount": {"source":"STAT", "statName":"BASE_ATK", "cardContext":"SELF"}, "isPermanent":true}}
+                    ]}}}}
+                ]}
               }
             ]
             """,
@@ -343,7 +346,10 @@ public class GameService {
                 {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"MAX_LIFE","amount":15,"isPermanent":true}},
                 {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"ATK","amount":5,"isPermanent":true}}
               ]}},
-              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Heal Ally +1", "description":"Heal a friendly Jamestiago or Menino-Veneno for 1 life instead of attacking.", "requiresTarget":"OWN_FIELD_CARD", "action":"HEAL_TARGET","params":{"targets":"ACTIVATION_CONTEXT_TARGET","amount":1}}
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Heal Ally +1", "description":"Heal a friendly Jamestiago or Menino-Veneno for 1 life instead of attacking.", "requiresTarget":"OWN_FIELD_CARD", "condition":{"type":"ANY_OF", "conditions":[
+                  {"type":"TARGET_HAS_TYPE", "params":{"typeName":"Jamestiago"}},
+                  {"type":"TARGET_HAS_TYPE", "params":{"typeName":"Menino-Veneno"}}
+              ]}, "action":"HEAL_TARGET","params":{"targets":"ACTIVATION_CONTEXT_TARGET","amount":1}}
             ]
             """,
         Rarity.RARE,
@@ -382,8 +388,15 @@ public class GameService {
             [
               {"trigger":"ON_DEATH_OF_ANY","condition":{"type":"TARGET_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"CHAINED_EFFECTS","params":{"effects":[
                 {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"MAX_LIFE","amount":5,"isPermanent":true}},
-                {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"ATK","amount":2,"isPermanent":true}},
-                {"action":"HEAL_TARGET","params":{"targets":"SELF","amount":5}}
+                {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"ATK","amount":2,"isPermanent":true}}
+              ]}},
+              {"trigger":"ON_PLAY", "condition":{"type":"ENEMY_CARD_IN_PLAY", "params":{"cardId":"CAP001"}}, "action":"SCHEDULE_ACTION", "params":{
+                  "delayInTurns":3, "targets":"ENEMY_CARD_WITH_ID", "context":{"cardId":"CAP001"},
+                  "scheduledEffect":{"action":"DESTROY_CARD", "params":{"targets":"SELF"}}
+              }},
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Capybara Wrath", "description":"Deal 3 damage to all non-Capybara cards. (Once per game)", "requiresTarget":"NONE", "condition":{"type":"SELF_HAS_FLAG", "params":{"flagName":"olivio_wrath_used", "mustBeAbsent":true}}, "action":"CHAINED_EFFECTS", "params":{"effects":[
+                  {"action":"DEAL_DAMAGE", "params":{"targets":"ALL_NON_CAPYBARA_CARDS_ON_FIELD", "amount":3}},
+                  {"action":"APPLY_FLAG", "params":{"targets":"SELF", "flagName":"olivio_wrath_used", "value":true}}
               ]}}
             ]
             """,
@@ -396,7 +409,10 @@ public class GameService {
             [
               {"trigger":"CONTINUOUS_AURA", "condition":{"type":"FRIENDLY_CARD_IN_PLAY", "params":{"cardId":"CAP011"}}, "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"ATK", "amount":1}]}},
               {"trigger":"ON_DEFEND","condition":{"type":"SOURCE_HAS_CARD_ID","params":{"cardId":"CAP011"}},"action":"DESTROY_CARD","params":{"targets":"SELF"}},
-              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Rain", "description":"Deal 2 damage to all non-Capybara cards on the field. (Once per game)", "requiresTarget":"NONE", "action":"DEAL_DAMAGE","params":{"targets":"ALL_NON_CAPYBARA_CARDS_ON_FIELD","amount":2}}
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Rain", "description":"Deal 2 damage to all non-Capybara cards on the field. (Once per game)", "requiresTarget":"NONE", "condition":{"type":"SELF_HAS_FLAG", "params":{"flagName":"makachu_rain_used", "mustBeAbsent":true}}, "action":"CHAINED_EFFECTS", "params":{"effects":[
+                  {"action":"DEAL_DAMAGE","params":{"targets":"ALL_NON_CAPYBARA_CARDS_ON_FIELD","amount":2}},
+                  {"action":"APPLY_FLAG", "params":{"targets":"SELF", "flagName":"makachu_rain_used", "value":true}}
+              ]}}
             ]
             """,
         Rarity.UNCOMMON, "makachu.png",
@@ -413,12 +429,10 @@ public class GameService {
                 "trigger": "ON_DEATH",
                 "condition": {"type": "TRIGGER_SOURCE_IS_SELF"},
                 "action": "CHOOSE_RANDOM_EFFECT",
-                "params": {
-                  "choices": [
+                "params": { "choices": [
                     {"action": "TRANSFORM_CARD", "params": {"targets": "SELF", "newCardId": "CAP004"}},
                     {"action": "TRANSFORM_CARD", "params": {"targets": "SELF", "newCardId": "CAP012"}}
-                  ]
-                }
+                ]}
               }
             ]
             """,
@@ -446,7 +460,8 @@ public class GameService {
         """
             [
               {"trigger":"ON_ATTACK_DECLARE","action":"BUFF_STAT","params":{"targets":"SELF","stat":"DEF","amount":2,"isPermanent":true}},
-              {"trigger":"ON_DAMAGE_TAKEN","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"DESTROY_CARD","params":{"targets":"SELF"}}
+              {"trigger":"ON_DAMAGE_TAKEN","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"DESTROY_CARD","params":{"targets":"SELF"}},
+              {"trigger":"CONTINUOUS_AURA", "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "flags":{"can_survive_lethal_AURA":true}}}
             ]
             """,
         Rarity.UNCOMMON,
@@ -456,8 +471,8 @@ public class GameService {
         """
             [
               {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":1}},
-              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Heal Ally +1", "description":"Heal a friendly Kahina, Swettie, Ariel, Makachu, or any Femboy for 1 life instead of attacking.", "requiresTarget":"OWN_FIELD_CARD", "action":"HEAL_TARGET","params":{"targets":"ACTIVATION_CONTEXT_TARGET","amount":1}},
-              {"trigger":"CONTINUOUS_AURA", "condition":{"type":"FRIENDLY_CARD_IN_PLAY", "params":{"cardId":"CAP006"}}, "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"ATK", "amount":1}]}}
+              {"trigger":"CONTINUOUS_AURA", "condition":{"type":"FRIENDLY_CARD_IN_PLAY", "params":{"cardId":"CAP006"}}, "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"ATK", "amount":1}]}},
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Heal Ally +1", "description":"Heal a friendly Kahina, Swettie, Ariel, Makachu, or any Femboy for 1 life.", "requiresTarget":"OWN_FIELD_CARD", "action":"HEAL_TARGET","params":{"targets":"ACTIVATION_CONTEXT_TARGET","amount":1}}
             ]
             """,
         Rarity.RARE,
@@ -468,7 +483,8 @@ public class GameService {
         """
             [
               {"trigger":"ON_DEATH", "action":"APPLY_FLAG", "params": {"targets":"EVENT_SOURCE", "flagName":"status_silenced", "value": true, "duration": "TURN"}},
-              {"trigger":"CONTINUOUS_AURA", "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"DEF", "amount":{"source":"DYNAMIC_COUNT", "countType":"FRIENDLY_CARDS_WITH_TYPE", "typeName":"Indigenous"}}]}}
+              {"trigger":"CONTINUOUS_AURA", "action":"APPLY_AURA_BUFF", "params":{"targets":"SELF", "buffs":[{"stat":"DEF", "amount":{"source":"DYNAMIC_COUNT", "countType":"FRIENDLY_CARDS_WITH_TYPE", "typeName":"Indigenous", "multiplier":4}}]}},
+              {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Heal Ally +1", "description":"Heal any other card for 1 life instead of attacking.", "requiresTarget":"ANY_FIELD_CARD", "action":"HEAL_TARGET", "params":{"targets":"ACTIVATION_CONTEXT_TARGET", "amount":1}}
             ]
             """,
         Rarity.RARE, "ariel.png",
@@ -488,12 +504,7 @@ public class GameService {
                   }
                 },
                 "action": "APPLY_AURA_BUFF",
-                "params": {
-                  "targets": "SELF",
-                  "flags": {
-                    "status_cannot_attack_AURA": true
-                  }
-                }
+                "params": { "targets": "SELF", "flags": { "status_cannot_attack_AURA": true } }
               }
             ]
             """,
@@ -517,11 +528,7 @@ public class GameService {
         """
             [
               {"trigger":"ACTIVATED", "abilityOptionIndex":0, "name":"Mark with Scargot", "description":"Mark a card. Marked cards can be attacked.", "requiresTarget":"ANY_FIELD_CARD", "action":"APPLY_FLAG","params":{"targets":"ACTIVATION_CONTEXT_TARGET","flagName":"scargot_mark","value":true,"duration":"PERMANENT"}},
-              {"trigger":"ACTIVATED", "abilityOptionIndex":1, "name":"Sip Wine", "description":"Heal self for 3 LIFE at the start of your next turn.", "requiresTarget":"NONE", "action":"APPLY_FLAG","params":{"targets":"SELF","flagName":"is_healing_next_turn","value":true,"duration":"TURN"}},
-              {"trigger":"START_OF_TURN_SELF","condition":{"type":"SELF_HAS_FLAG","params":{"flagName":"is_healing_next_turn"}},"action":"CHAINED_EFFECTS","params":{"effects":[
-                {"action":"HEAL_TARGET","params":{"targets":"SELF","amount":3}},
-                {"action":"APPLY_FLAG","params":{"targets":"SELF","flagName":"is_healing_next_turn","value":null}}
-              ]}},
+              {"trigger":"ACTIVATED", "abilityOptionIndex":1, "name":"Sip Wine", "description":"Heal self for 3 LIFE at the start of your next turn.", "requiresTarget":"NONE", "action":"SCHEDULE_ACTION", "params": {"delayInTurns":1, "scheduledEffect":{"action":"HEAL_TARGET", "params":{"targets":"SELF", "amount":3}}}},
               {"trigger":"CONTINUOUS_AURA", "action":"APPLY_AURA_BUFF", "params":{"targets":"ALL_FRIENDLY_CARDS_ON_FIELD", "buffs":[{"stat":"ATK", "amount":1}]}}
             ]
             """,
@@ -532,7 +539,7 @@ public class GameService {
         "When attacked, gains +2 ATK permanently. Then, deals damage to its attacker equal to its new ATK.",
         """
             [
-              {"trigger":"ON_DAMAGE_TAKEN","action":"CHAINED_EFFECTS","params":{"effects":[
+              {"trigger":"ON_DEFEND","action":"CHAINED_EFFECTS","params":{"effects":[
                 {"action":"BUFF_STAT","params":{"targets":"SELF","stat":"ATK","amount":2,"isPermanent":true}},
                 {"action":"DEAL_DAMAGE","params":{"targets":"EVENT_SOURCE","amount":{"source":"STAT","statName":"ATK","cardContext":"SELF"}}}
               ]}}
@@ -555,18 +562,13 @@ public class GameService {
         "Only dies one turn after reaching 0 LIFE.",
         """
             [
-                  {
-                    "trigger": "ON_DEATH",
-                    "action": "SCHEDULE_ACTION",
-                    "params": {
-                      "delayInTurns": 2,
-                      "scheduledEffect": {
-                        "action": "DESTROY_CARD",
-                        "params": {"targets": "SELF"}
-                      }
-                    }
-                  }
-                ]""", Rarity.RARE, "98pm.png", "Not quite dead yet."));
+              {"trigger":"ON_DEATH", "condition":{"type":"SELF_HAS_FLAG", "params":{"flagName":"death_delayed", "mustBeAbsent":true}}, "action":"CHAINED_EFFECTS", "params":{"effects":[
+                  {"action":"HEAL_TARGET", "params":{"targets":"SELF", "amount":999}},
+                  {"action":"APPLY_FLAG", "params":{"targets":"SELF", "flagName":"death_delayed", "value":true}},
+                  {"action":"SCHEDULE_ACTION", "params":{"delayInTurns":1, "scheduledEffect":{"action":"DESTROY_CARD", "params":{"targets":"SELF"}}}}
+              ]}}
+            ]""",
+        Rarity.RARE, "98pm.png", "Not quite dead yet."));
 
     cardRepository.saveAll(cardsToSeed);
     logger.info("Seeded {} placeholder cards.", cardsToSeed.size());
@@ -576,13 +578,11 @@ public class GameService {
     if (allCardDefinitions == null || allCardDefinitions.isEmpty()) {
       throw new IllegalStateException("Card definitions not loaded.");
     }
-    // FIX: Filter out cards that are not directly playable from the deck pool
     List<Card> playableCards = allCardDefinitions.stream()
         .filter(Card::isDirectlyPlayable)
         .collect(Collectors.toList());
 
     List<Card> deckInProgress = new ArrayList<>();
-    // Now use the filtered list to build the deck
     for (int i = 0; i < 20; i++) {
       deckInProgress.add(playableCards.get(i % playableCards.size()));
     }
@@ -602,6 +602,7 @@ public class GameService {
 
     newGame.setGameState(Game.GameState.WAITING_FOR_PLAYERS);
     activeGames.put(newGame.getGameId(), newGame);
+    gameLocks.put(newGame.getGameId(), new ReentrantLock());
 
     MDC.put("gameId", newGame.getGameId());
     logger.info("New game object created. P1: {}, P2: {}", player1DisplayName, player2DisplayName);
@@ -616,14 +617,11 @@ public class GameService {
         0,
         game.getPlayer1().getPlayerId(),
         game.getPlayer2().getPlayerId(),
-        game.getPlayer1().getPlayerId() // Player 1 always starts for now
-    );
+        game.getPlayer1().getPlayerId());
 
-    // Create a temporary list to hold all startup events
     List<GameEvent> startupEvents = new ArrayList<>();
     startupEvents.add(startEvent);
 
-    // Apply the start event to get the initial state with drawn cards
     game.apply(startEvent);
 
     logger.info("Game {} started with {} initial events.", game.getGameId(), startupEvents.size());
@@ -635,45 +633,53 @@ public class GameService {
   }
 
   public List<GameEvent> handleCommand(GameCommand command) {
-    Game game = activeGames.get(command.gameId);
-    if (game == null) {
-      logger.warn("Attempted to handle command for non-existent game: {}", command.gameId);
+    Lock lock = gameLocks.get(command.gameId);
+    if (lock == null) {
+      logger.error("No lock found for game: {}", command.gameId);
       return List.of();
     }
 
-    logger.debug("[{}] Service received command: {}", command.gameId, command.getCommandType());
+    lock.lock();
+    try {
+      Game game = activeGames.get(command.gameId);
+      if (game == null) {
+        logger.warn("Attempted to handle command for non-existent game: {}", command.gameId);
+        return List.of();
+      }
 
-    // The GameEngine now returns a complete list of events, including subsequent
-    // death checks.
-    List<GameEvent> events = gameEngine.processCommand(game, command);
+      logger.debug("[{}] Service received command: {}", command.gameId, command.getCommandType());
 
-    if (events.isEmpty()) {
-      logger.warn("Command {} from session for game {} resulted in NO events. Action was likely invalid.",
-          command.getCommandType(), game.getGameId());
-      return List.of(); // Return early if the command was invalid
+      List<GameEvent> events = gameEngine.processCommand(game, command);
+
+      if (events.isEmpty()) {
+        logger.warn("Command {} from session for game {} resulted in NO events. Action was likely invalid.",
+            command.getCommandType(), game.getGameId());
+        return List.of();
+      }
+
+      logger.debug("[{}] Engine produced {} events. Applying them to game state.", game.getGameId(), events.size());
+
+      for (GameEvent event : events) {
+        game.apply(event);
+      }
+
+      logger.debug("[{}] Finished applying events. New game state: {}", game.getGameId(), game.getGameState());
+
+      return events;
+    } finally {
+      lock.unlock();
     }
-
-    logger.debug("[{}] Engine produced {} events. Applying them to game state.", game.getGameId(), events.size());
-
-    // Apply all generated events to the real game state
-    for (GameEvent event : events) {
-      game.apply(event);
-    }
-
-    logger.debug("[{}] Finished applying events. New game state: {}", game.getGameId(), game.getGameState());
-
-    return events;
   }
 
   public void removeGame(String gameId) {
-    // Set MDC to log the final message to the correct game file
     MDC.put("gameId", gameId);
     Game removedGame = activeGames.remove(gameId);
+    gameLocks.remove(gameId); // Also remove the lock
     if (removedGame != null) {
       logger.info("Game {} has ended and is now removed from active games. This log file is now complete.", gameId);
     } else {
       logger.warn("Attempted to remove non-existent game: {}", gameId);
     }
-    MDC.remove("gameId"); // Clean up
+    MDC.remove("gameId");
   }
 }

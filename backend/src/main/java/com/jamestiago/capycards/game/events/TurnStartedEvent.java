@@ -5,10 +5,9 @@ public final class TurnStartedEvent extends GameEvent {
     public final int newTurnNumber;
 
     public TurnStartedEvent(String gameId, int turnNumber, String newTurnPlayerId) {
-        // The `turnNumber` parameter now correctly represents the turn that *ended*.
-        super(gameId, turnNumber);
+        // Both turnNumber and newTurnNumber now refer to the new turn for consistency.
+        super(gameId, turnNumber + 1);
         this.newTurnPlayerId = newTurnPlayerId;
-        // The event is responsible for calculating the new turn number.
         this.newTurnNumber = turnNumber + 1;
     }
 }

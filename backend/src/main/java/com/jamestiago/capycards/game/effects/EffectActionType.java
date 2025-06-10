@@ -5,6 +5,7 @@ public enum EffectActionType {
     DEAL_DAMAGE,
     HEAL_TARGET,
     BUFF_STAT,
+    SET_STAT,
     DEBUFF_STAT,
     DRAW_CARDS,
     DESTROY_CARD,
@@ -23,6 +24,7 @@ public enum EffectActionType {
     CHAINED_EFFECTS,
     CHOOSE_RANDOM_EFFECT,
     MODIFY_INCOMING_DAMAGE, // Defensive continuous effect
+    MODIFY_OUTGOING_DAMAGE,
     APPLY_AURA_BUFF, // Continuous aura effect
 
     // Meta Actions

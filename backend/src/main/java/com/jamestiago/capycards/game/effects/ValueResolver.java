@@ -59,26 +59,34 @@ public class ValueResolver {
         if (countType == null)
             return 0;
 
+        long count = 0;
         switch (countType.toUpperCase()) {
             case "FRIENDLY_CARDS_WITH_TYPE":
                 String typeToCount = (String) valueMap.get("typeName");
                 if (typeToCount == null)
                     return 0;
-
-                // Count friendly cards with the specified type, excluding the source card
-                // itself.
-                return (int) owner.getFieldInternal().stream()
+                count = owner.getFieldInternal().stream()
                         .filter(c -> c != null && !c.getInstanceId().equals(effectSource.getInstanceId())
                                 && c.hasType(typeToCount))
                         .count();
+                break;
             case "OTHER_FRIENDLY_CARDS":
-                return (int) owner.getFieldInternal().stream()
+                count = owner.getFieldInternal().stream()
                         .filter(c -> c != null && !c.getInstanceId().equals(effectSource.getInstanceId()))
                         .count();
+                break;
             default:
                 logger.warn("Unknown dynamic count type: {}", countType);
                 return 0;
         }
+
+        // Apply multiplier if it exists
+        if (valueMap.containsKey("multiplier")) {
+            Integer multiplier = (Integer) valueMap.get("multiplier");
+            return (int) count * multiplier;
+        }
+
+        return (int) count;
     }
 
     private Integer resolveStatValue(Map<String, Object> valueMap, CardInstance effectSource, Player owner,
@@ -97,7 +105,6 @@ public class ValueResolver {
             case "EVENT_SOURCE":
                 targetCard = (CardInstance) context.get("eventSource");
                 break;
-            // Add more contexts as needed
             default:
                 logger.warn("Unknown cardContext in stat value resolver: {}", cardContext);
                 return null;
@@ -108,17 +115,30 @@ public class ValueResolver {
             return null;
         }
 
-        switch (statName) {
-            case "ATK":
-                return targetCard.getCurrentAttack();
-            case "DEF":
-                return targetCard.getCurrentDefense();
-            case "LIFE":
-                return targetCard.getCurrentLife();
-            default:
+        Integer result = switch (statName) {
+            case "ATK" -> targetCard.getCurrentAttack();
+            case "DEF" -> targetCard.getCurrentDefense();
+            case "LIFE" -> targetCard.getCurrentLife();
+            case "BASE_ATK" -> targetCard.getBaseAttack();
+            case "BASE_DEF" -> targetCard.getBaseDefense();
+            case "BASE_LIFE" -> targetCard.getBaseLife();
+            default -> {
                 logger.warn("Unknown statName in stat value resolver: {}", statName);
-                return null;
+                yield null;
+            }
+        };
+
+        if (result != null && valueMap.containsKey("multiplier")) {
+            // Support for float/double multipliers for things like "half life"
+            Object multiplierObj = valueMap.get("multiplier");
+            if (multiplierObj instanceof Double) {
+                result = (int) (result * (Double) multiplierObj);
+            } else if (multiplierObj instanceof Integer) {
+                result = result * (Integer) multiplierObj;
+            }
         }
+
+        return result;
     }
 
     private Integer resolveEventData(Map<String, Object> valueMap, Map<String, Object> context) {

@@ -16,5 +16,6 @@ public enum EffectTrigger {
 
     // Special trigger checked at specific moments, not in the main trigger loop
     CONTINUOUS_DEFENSIVE, // Checked by EffectProcessor.applyDamage before damage is calculated
+    CONTINUOUS_OFFENSIVE, // New: Checked by EffectProcessor.applyDamage for outgoing damage
     CONTINUOUS_AURA // Checked by Game.processAllAuras whenever field state changes
 }

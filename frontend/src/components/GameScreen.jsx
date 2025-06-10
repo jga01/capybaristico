@@ -40,8 +40,8 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
 
     const isMyTurn = localGameState.currentPlayerId === playerId;
     const canvasRef = useRef();
+    const isProcessingQueue = useRef(false);
 
-    // Helper function to find card info within the current or a draft state
     const findCardInfo = useCallback((instanceId, state) => {
         const p1 = state.player1State;
         const p2 = state.player2State;
@@ -52,7 +52,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
             if (p && p.field) {
                 p.field.forEach((card, index) => {
                     if (card && card.instanceId === instanceId) {
-                        cardInfo = { card, owner: p, index };
+                        cardInfo = { card, owner: p, index, ownerId: p.playerId };
                     }
                 });
             }
@@ -62,15 +62,14 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
 
     useEffect(() => {
         if (commandError) {
-            setFeedbackMessage(`❗ ${commandError}`); // Show the error
+            setFeedbackMessage(`❗ ${commandError}`);
             const timer = setTimeout(() => {
-                clearCommandError(); // Clear state in parent
-                setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn."); // Reset
-            }, 4000); // Display for 4 seconds
-
+                clearCommandError();
+                setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
+            }, 4000);
             return () => clearTimeout(timer);
         }
-    }, [commandError, clearCommandError, isMyTurn, localGameState.currentPlayerId]);
+    }, [commandError, clearCommandError, isMyTurn]);
 
     useEffect(() => {
         log('GameScreen mounted.', { gameId, playerId }, 'INFO');
@@ -80,7 +79,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
     useEffect(() => {
         if (!eventBatch || eventBatch.length === 0) return;
 
-        log('Received event batch from server.', { count: eventBatch.length, events: eventBatch }, 'INFO');
+        log('Received event batch from server.', { count: eventBatch.length });
 
         const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
         if (turnStartEvent) {
@@ -89,7 +88,6 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
         }
 
         const visualEffects = [];
-        log('Local game state BEFORE applying events.', localGameState);
         const nextState = produce(localGameState, draftState => {
             eventBatch.forEach(event => {
                 applyEventToState(draftState, event, playerId, findCardInfo);
@@ -101,53 +99,46 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
             });
         });
 
-        log('Local game state AFTER applying events.', nextState);
         setLocalGameState(nextState);
-        setEffectQueue(prev => {
-            const newQueue = [...prev, ...visualEffects];
-            log('Effect queue updated.', { added: visualEffects.length, newTotal: newQueue.length });
-            return newQueue;
-        });
+        setEffectQueue(prev => [...prev, ...visualEffects]);
     }, [eventBatch, playerId, findCardInfo]);
 
     const handleEffectComplete = useCallback(() => {
-        if (currentEffect) {
-            log('Visual effect completed.', currentEffect, 'RENDER');
-            // If the completed effect was a destruction, now is the time to remove the card from state.
-            if (currentEffect.isCleanupRequired) {
-                setLocalGameState(produce(draft => {
-                    const info = findCardInfo(currentEffect.targetId, draft);
-                    if (info) {
-                        draft[info.owner === draft.player1State ? 'player1State' : 'player2State'].field[info.index] = null;
-                    }
-                }));
-            }
+        if (currentEffect && currentEffect.isCleanupRequired) {
+            setLocalGameState(produce(draft => {
+                const info = findCardInfo(currentEffect.targetId, draft);
+                if (info) {
+                    const ownerKey = info.ownerId === draft.player1State.playerId ? 'player1State' : 'player2State';
+                    draft[ownerKey].field[info.index] = null;
+                }
+            }));
         }
         setCurrentEffect(null);
-        setEffectQueue(prev => prev.slice(1));
+        isProcessingQueue.current = false;
     }, [currentEffect, findCardInfo]);
 
     useEffect(() => {
-        if (!currentEffect && effectQueue.length > 0) {
+        if (!isProcessingQueue.current && effectQueue.length > 0) {
+            isProcessingQueue.current = true;
             const nextEffect = effectQueue[0];
-            log('Processing next effect from queue.', nextEffect, 'RENDER');
 
             setCurrentEffect(nextEffect);
+            setEffectQueue(prev => prev.slice(1));
+
             if (nextEffect.type === 'ATTACK_LUNGE') {
                 setAttackAnimation({ attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId });
-                log('Starting ATTACK_LUNGE animation.', { attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId }, 'RENDER');
                 setTimeout(() => {
                     setAttackAnimation(null);
                     handleEffectComplete();
                 }, 1000);
             }
         }
-    }, [effectQueue, currentEffect, handleEffectComplete]);
+    }, [effectQueue, handleEffectComplete]);
 
-    const isInputLocked = () => effectQueue.length > 0 || !!currentEffect || !!attackAnimation;
+
+    const isInputLocked = () => isProcessingQueue.current || !!attackAnimation;
 
     const clearSelections = useCallback(() => {
-        log('Clearing all user selections.');
         setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
         setSelectedHandCardInfo(null);
         setSelectedAttackerInfo(null);
@@ -160,45 +151,26 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
 
     const handleHTMLCardClickInHand = (cardData) => {
         if (isInputLocked() || !isMyTurn) return;
-        log(`USER_ACTION: Clicked card in hand.`, { cardName: cardData.name, instanceId: cardData.instanceId });
-        if (selectedAttackerInfo || selectedAbilitySourceInfo) {
-            setFeedbackMessage("Another action is pending. Cancel it first.");
-            return;
-        }
-        if (selectedHandCardInfo?.instanceId === cardData.instanceId) {
-            clearSelections();
-        } else {
-            setSelectedHandCardInfo({ instanceId: cardData.instanceId, cardData });
-            setFeedbackMessage(`Selected ${cardData.name} from hand.`);
-        }
+        if (selectedAttackerInfo || selectedAbilitySourceInfo) { setFeedbackMessage("Another action is pending. Cancel it first."); return; }
+        if (selectedHandCardInfo?.instanceId === cardData.instanceId) { clearSelections(); }
+        else { setSelectedHandCardInfo({ instanceId: cardData.instanceId, cardData }); setFeedbackMessage(`Selected ${cardData.name} from hand.`); }
     };
 
     const handleEmptyFieldSlotClick = (ownerPlayerId, fieldSlotIndex) => {
         if (isInputLocked() || !isMyTurn || !selectedHandCardInfo || ownerPlayerId !== playerId) return;
-        log('USER_ACTION: Clicked empty field slot to play card.', { cardName: selectedHandCardInfo.cardData.name, slot: fieldSlotIndex });
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
         const handCardIndex = viewingPlayer.hand.findIndex(c => c.instanceId === selectedHandCardInfo.instanceId);
-        if (handCardIndex === -1) {
-            log("Error: Card to be played not found in local hand state.", { selected: selectedHandCardInfo }, 'ERROR');
-            setFeedbackMessage("Error: Card not found in hand.");
-            clearSelections();
-            return;
-        }
-        emitGameCommand({
-            gameId, playerId, commandType: 'PLAY_CARD',
-            handCardIndex, targetFieldSlot: fieldSlotIndex
-        });
+        if (handCardIndex === -1) { setFeedbackMessage("Error: Card not found in hand."); clearSelections(); return; }
+        emitGameCommand({ gameId, playerId, commandType: 'PLAY_CARD', handCardIndex, targetFieldSlot: fieldSlotIndex });
         clearSelections();
     };
 
     const handleCardClickOnField = (cardData, mesh, ownerId, fieldIndex) => {
         if (isInputLocked() || !isMyTurn || !cardData) return;
-        log(`USER_ACTION: Clicked card on field.`, { cardName: cardData.name, ownerId, fieldIndex, isTargetingMode });
         const isOwnCard = ownerId === playerId;
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
         if (isTargetingMode) {
-            log('Targeting mode active. Resolving target.', { targetCard: cardData.name });
             if (selectedAttackerInfo) {
                 if (isOwnCard) { setFeedbackMessage("Cannot attack your own card."); return; }
                 emitGameCommand({ gameId, playerId, commandType: 'ATTACK', attackerFieldIndex: selectedAttackerInfo.fieldIndex, defenderFieldIndex: fieldIndex });
@@ -222,14 +194,13 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
 
     const handleAbilityOptionSelect = (abilityOpt) => {
         if (isInputLocked() || !selectedAbilitySourceInfo) return;
-        log(`USER_ACTION: Selected ability.`, { cardName: selectedAbilitySourceInfo.cardData.name, ability: abilityOpt.name });
         setSelectedAttackerInfo(null); setSelectedAbilityOption(abilityOpt);
         const requiresTarget = abilityOpt.requiresTarget && abilityOpt.requiresTarget !== "NONE";
         if (requiresTarget) { setIsTargetingMode(true); setFeedbackMessage(`Ability '${abilityOpt.name}' requires a target.`); }
         else { emitGameCommand({ gameId, playerId, commandType: 'ACTIVATE_ABILITY', sourceCardInstanceId: selectedAbilitySourceInfo.instanceId, abilityOptionIndex: abilityOpt.index }); clearSelections(); }
     };
 
-    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { log('USER_ACTION: Clicked End Turn button.'); clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
+    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
 
     useEffect(() => { if (showTurnBanner) { const timer = setTimeout(() => setShowTurnBanner(false), 2500); return () => clearTimeout(timer); } }, [showTurnBanner]);
 
@@ -239,7 +210,7 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
         <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
             {showTurnBanner && <div className="turn-banner">Your Turn</div>}
             <CanvasWrapper ref={canvasRef} gameState={localGameState} playerId={playerId} onMagnify={setMagnifiedCard} onCardClickOnField={handleCardClickOnField} onEmptyFieldSlotClick={handleEmptyFieldSlotClick} onTableClick={handleTableClick} selectedHandCardInfo={selectedHandCardInfo} selectedAttackerInfo={selectedAttackerInfo} selectedAbilitySourceInfo={selectedAbilitySourceInfo} isTargetingMode={isTargetingMode} selectedAbilityOption={selectedAbilityOption} currentEffect={currentEffect} onEffectComplete={handleEffectComplete} attackAnimation={attackAnimation} />
-            <GameLog eventBatch={eventBatch} player1Name={localGameState.player1State.displayName} player2Name={localGameState.player2State.displayName} />
+            <GameLog eventBatch={eventBatch} player1={localGameState.player1State} player2={localGameState.player2State} />
             <div style={{ position: 'absolute', top: 10, right: 15, zIndex: 200 }}><button onClick={() => downloadLogs(gameId)}>Download Logs</button></div>
             <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', color: 'white', pointerEvents: 'none', textShadow: '1px 1px 2px black', textAlign: 'center' }}>
                 <p style={{ margin: 0 }}>Turn: {localGameState.turnNumber} | {isMyTurn ? "Your Turn" : "Opponent's Turn"}</p>
@@ -261,7 +232,6 @@ const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandErr
     );
 };
 
-// --- FIX: `applyEventToState` is modified to not remove the card, only mark it for death ---
 function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
     const getPlayer = (id) => (draftState.player1State.playerId === id ? draftState.player1State : draftState.player2State);
     const resetStatChanges = (card) => { if (card) card.statChanges = {}; };
@@ -281,7 +251,7 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
         case 'CARD_PLAYED': {
             const player = getPlayer(event.playerId); player.handSize = event.newHandSize;
             if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) player.hand.splice(event.fromHandIndex, 1);
-            player.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.currentAttack, baseDefense: event.card.currentDefense, baseLife: event.card.currentLife };
+            player.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.currentAttack, baseDefense: event.card.currentDefense, baseLife: event.card.currentLife, effectFlags: {} };
             break;
         }
         case 'ATTACK_DECLARED': { const info = findCardInfo(event.attackerInstanceId, draftState); if (info) { info.owner.attacksDeclaredThisTurn += 1; info.card.isExhausted = true; } break; }
@@ -289,9 +259,19 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
         case 'CARD_DESTROYED': {
             const info = findCardInfo(event.card.instanceId, draftState);
             if (info) {
-                // *** FIX: Only mark as dying, do not remove from field array here ***
                 info.card.isDying = true;
                 info.owner.discardPileSize += 1;
+            }
+            break;
+        }
+        case 'CARD_STAT_SET': {
+            const info = findCardInfo(event.targetInstanceId, draftState);
+            if (info) {
+                resetStatChanges(info.card);
+                if (event.stat === 'ATK' && info.card.currentAttack !== event.value) { info.card.statChanges.attack = true; info.card.currentAttack = event.value; info.card.baseAttack = event.value; }
+                if (event.stat === 'DEF' && info.card.currentDefense !== event.value) { info.card.statChanges.defense = true; info.card.currentDefense = event.value; info.card.baseDefense = event.value; }
+                if (event.stat === 'MAX_LIFE' && info.card.baseLife !== event.value) { info.card.statChanges.life = true; info.card.baseLife = event.value; }
+                if (event.stat === 'LIFE' && info.card.currentLife !== event.value) { info.card.statChanges.life = true; info.card.currentLife = event.value; }
             }
             break;
         }
@@ -309,8 +289,9 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             const info = findCardInfo(event.targetInstanceId, draftState);
             if (info) {
                 resetStatChanges(info.card);
-                if (event.stat === "ATK") { info.card.statChanges.attack = true; info.card.currentAttack = event.statAfter; }
-                if (event.stat === "DEF") { info.card.statChanges.defense = true; info.card.currentDefense = event.statAfter; }
+                if (event.stat.toUpperCase() === "ATK") { info.card.statChanges.attack = true; info.card.currentAttack = event.statAfter; }
+                if (event.stat.toUpperCase() === "DEF") { info.card.statChanges.defense = true; info.card.currentDefense = event.statAfter; }
+                if (event.stat.toUpperCase() === "MAX_LIFE") { info.card.statChanges.life = true; info.card.currentLife = event.statAfter; }
             }
             break;
         }
@@ -322,15 +303,20 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
         }
         case 'CARD_TRANSFORMED': {
             const info = findCardInfo(event.originalInstanceId, draftState);
-            if (info) { const newCard = { ...event.newCardDto, isExhausted: true, statChanges: {}, baseAttack: event.newCardDto.currentAttack, baseDefense: event.newCardDto.currentDefense, baseLife: event.newCardDto.currentLife }; info.owner.field[info.index] = newCard; }
+            if (info) { const newCard = { ...event.newCardDto, isExhausted: true, statChanges: {}, baseAttack: event.newCardDto.currentAttack, baseDefense: event.newCardDto.currentDefense, baseLife: event.newCardDto.currentLife, effectFlags: {} }; info.owner.field[info.index] = newCard; }
             break;
         }
-        case 'CARD_VANISHED': { const info = findCardInfo(event.instanceId, draftState); if (info) info.owner.field[info.index] = null; break; }
-        case 'CARD_REAPPEARED': { const owner = getPlayer(event.ownerPlayerId); if (owner) owner.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {} }; break; }
+        case 'CARD_VANISHED': {
+            const info = findCardInfo(event.instanceId, draftState);
+            if (info) {
+                info.card.isVanishing = true; // Set a flag instead of removing
+            }
+            break;
+        }
+        case 'CARD_REAPPEARED': { const owner = getPlayer(event.ownerPlayerId); if (owner) owner.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, effectFlags: {} }; break; }
     }
 }
 
-// --- FIX: `translateEventToEffect` is modified to signal a cleanup action is required ---
 function translateEventToEffect(currentState, event, viewingPlayerId) {
     if (!event) return null;
     switch (event.eventType) {
@@ -343,13 +329,13 @@ function translateEventToEffect(currentState, event, viewingPlayerId) {
         }
         case 'COMBAT_DAMAGE_DEALT': return event.damageAfterDefense > 0 ? { type: 'DAMAGE', targetId: event.defenderInstanceId, amount: event.damageAfterDefense } : { type: 'ZERO_DAMAGE', targetId: event.defenderInstanceId };
         case 'ATTACK_DECLARED': return { type: 'ATTACK_LUNGE', sourceId: event.attackerInstanceId, targetId: event.defenderInstanceId, duration: 1000 };
-        case 'CARD_DESTROYED': return { type: 'CARD_DESTROYED', targetId: event.card.instanceId, duration: 1200, isCleanupRequired: true }; // *** FIX: Add flag ***
+        case 'CARD_DESTROYED': return { type: 'CARD_DESTROYED', targetId: event.card.instanceId, duration: 1200, isCleanupRequired: true };
         case 'CARD_HEALED': return { type: 'HEAL', targetId: event.targetInstanceId, amount: event.amount };
         case 'CARD_PLAYED': return null;
         case 'CARD_BUFFED': return { type: 'STAT_CHANGE', isBuff: true, targetId: event.targetInstanceId, text: `+${event.amount} ${event.stat}` };
         case 'CARD_DEBUFFED': return { type: 'STAT_CHANGE', isBuff: false, targetId: event.targetInstanceId, text: `-${event.amount} ${event.stat}` };
         case 'CARD_TRANSFORMED': return { type: 'TRANSFORM', targetId: event.originalInstanceId, duration: 1500 };
-        case 'CARD_VANISHED': return { type: 'VANISH', targetId: event.instanceId, duration: 1200 };
+        case 'CARD_VANISHED': return { type: 'VANISH', targetId: event.instanceId, duration: 1200, isCleanupRequired: true };
         case 'CARD_REAPPEARED': return { type: 'REAPPEAR', targetId: event.card.instanceId, duration: 1400 };
         default: return null;
     }

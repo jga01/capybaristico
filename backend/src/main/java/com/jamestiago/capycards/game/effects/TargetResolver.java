@@ -77,6 +77,16 @@ public class TargetResolver {
                 }
                 break;
 
+            case "ENEMY_CARD_WITH_ID":
+                if (opponent != null && triggerContext != null && triggerContext.containsKey("cardId")) {
+                    String cardIdToFind = (String) triggerContext.get("cardId");
+                    opponent.getFieldInternal().stream()
+                            .filter(c -> c != null && c.getDefinition().getCardId().equals(cardIdToFind))
+                            .findFirst()
+                            .ifPresent(potentialTargets::add);
+                }
+                break;
+
             case "ALL_CARDS_ON_FIELD":
                 if (sourceOwner != null)
                     potentialTargets.addAll(sourceOwner.getFieldInternal().stream().filter(c -> c != null)

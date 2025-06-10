@@ -67,21 +67,19 @@ const Card3D = ({
     statChanges,
     auraColor,
     scale = 1,
-    // --- NEW PROPS ---
     frontTexture,
     backTexture,
 }) => {
     const meshRef = useRef();
 
-    // --- REMOVED useLoader calls ---
-
     useMemo(() => [frontTexture, backTexture].forEach(t => t && (t.anisotropy = 16)), [frontTexture, backTexture]);
 
+    const isVisuallyLeaving = isDying || cardData?.isVanishing;
     const { emissiveIntensity, color, opacity } = useSpring({
         emissiveIntensity: isHighlighted ? 0.6 : (auraColor ? 0.4 : 0.03),
         color: isExhausted ? '#888' : '#fff',
-        opacity: isDying ? 0 : 1,
-        config: { duration: isDying ? 800 : 200 }
+        opacity: isVisuallyLeaving ? 0 : 1,
+        config: { duration: isVisuallyLeaving ? 800 : 200 }
     });
 
 

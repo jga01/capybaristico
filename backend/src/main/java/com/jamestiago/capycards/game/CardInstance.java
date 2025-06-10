@@ -77,6 +77,24 @@ public class CardInstance {
         });
     }
 
+    // --- Getters for base stats ---
+    public int getBaseLife() {
+        return baseLife;
+    }
+
+    public int getBaseAttack() {
+        return baseAttack;
+    }
+
+    public int getBaseDefense() {
+        return baseDefense;
+    }
+
+    // --- Setter for last damage source ---
+    public void setLastDamageSourceCard(CardInstance source) {
+        this.lastDamageSourceCard = source;
+    }
+
     // --- New Flag Management ---
     public void setEffectFlag(String flagName, Object value) {
         effectFlags.put(flagName, value);

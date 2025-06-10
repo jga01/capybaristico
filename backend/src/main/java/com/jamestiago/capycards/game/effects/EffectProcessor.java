@@ -89,6 +89,49 @@ public class EffectProcessor {
             return true;
         }
         Map<String, Object> condition = (Map<String, Object>) effectConfig.get("condition");
+        return evaluateCondition(game, condition, source, owner, context);
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean evaluateCondition(Game game, Map<String, Object> condition, CardInstance source, Player owner,
+            Map<String, Object> context) {
+        String type = (String) condition.get("type");
+        if (type == null)
+            return true; // No type means condition passes.
+
+        logger.trace("Checking condition '{}' for card '{}'.", type, source.getDefinition().getName());
+        boolean result = false; // Default to false
+
+        switch (type.toUpperCase()) {
+            case "ALL_OF": { // Compound AND condition
+                List<Map<String, Object>> subConditions = (List<Map<String, Object>>) condition.get("conditions");
+                if (subConditions == null || subConditions.isEmpty())
+                    return true;
+                // Return true only if ALL sub-conditions are true
+                result = subConditions.stream().allMatch(sub -> evaluateCondition(game, sub, source, owner, context));
+                break;
+            }
+            case "ANY_OF": { // Compound OR condition
+                List<Map<String, Object>> subConditions = (List<Map<String, Object>>) condition.get("conditions");
+                if (subConditions == null || subConditions.isEmpty())
+                    return true;
+                // Return true if AT LEAST ONE sub-condition is true
+                result = subConditions.stream().anyMatch(sub -> evaluateCondition(game, sub, source, owner, context));
+                break;
+            }
+            // All other simple conditions follow...
+            default:
+                result = evaluateSimpleCondition(game, condition, source, owner, context);
+                break;
+        }
+
+        logger.trace("Condition '{}' for card '{}' evaluated to: {}", type, source.getDefinition().getName(), result);
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean evaluateSimpleCondition(Game game, Map<String, Object> condition, CardInstance source, Player owner,
+            Map<String, Object> context) {
         String type = (String) condition.get("type");
         Map<String, Object> params = (Map<String, Object>) condition.get("params");
         if (type == null)
@@ -97,8 +140,7 @@ public class EffectProcessor {
         ValueResolver valueResolver = new ValueResolver();
         context.put("game", game);
 
-        logger.trace("Checking condition '{}' for card '{}'.", type, source.getDefinition().getName());
-        boolean result = false; // Default to false
+        boolean result = false;
 
         switch (type.toUpperCase()) {
             case "SELF_HAS_FLAG": {
@@ -117,7 +159,9 @@ public class EffectProcessor {
                 if (eventSource == null)
                     break;
                 String typeName = (String) params.get("typeName");
-                result = eventSource.hasType(typeName);
+                boolean mustBeAbsent = params.containsKey("mustBeAbsent") && (boolean) params.get("mustBeAbsent");
+                boolean hasType = eventSource.hasType(typeName);
+                result = mustBeAbsent != hasType;
                 break;
             }
             case "TARGET_IS_DESTROYED": {
@@ -132,7 +176,9 @@ public class EffectProcessor {
                 if (target == null)
                     break;
                 String typeName = (String) params.get("typeName");
-                result = target.hasType(typeName);
+                boolean mustBeAbsent = params.containsKey("mustBeAbsent") && (boolean) params.get("mustBeAbsent");
+                boolean hasType = target.hasType(typeName);
+                result = mustBeAbsent != hasType;
                 break;
             }
             case "TRIGGER_SOURCE_IS_SELF": {
@@ -160,6 +206,19 @@ public class EffectProcessor {
                 result = mustBeAbsent != cardIsPresent;
                 break;
             }
+            case "ENEMY_CARD_IN_PLAY": {
+                if (params == null)
+                    break;
+                String cardId = (String) params.get("cardId");
+                boolean mustBeAbsent = params.containsKey("mustBeAbsent") && (boolean) params.get("mustBeAbsent");
+                Player opponent = game.getOpponent(owner);
+                if (opponent == null)
+                    break;
+                boolean cardIsPresent = opponent.getFieldInternal().stream()
+                        .anyMatch(c -> c != null && c.getDefinition().getCardId().equals(cardId));
+                result = mustBeAbsent != cardIsPresent;
+                break;
+            }
             case "VALUE_COMPARISON": {
                 if (params == null)
                     break;
@@ -174,28 +233,20 @@ public class EffectProcessor {
                     int val1 = resolvedSourceValue;
                     int val2 = resolvedTargetValue;
                     switch (operator.toUpperCase()) {
-                        case "GREATER_THAN" -> {
-                            result = val1 > val2;
-                        }
-                        case "LESS_THAN" -> {
-                            result = val1 < val2;
-                        }
-                        case "EQUALS" -> {
-                            result = val1 == val2;
-                        }
+                        case "GREATER_THAN" -> result = val1 > val2;
+                        case "LESS_THAN" -> result = val1 < val2;
+                        case "EQUALS" -> result = val1 == val2;
                         default -> {
-                            break;
                         }
                     }
                 }
                 break;
             }
             default:
-                logger.warn("Unknown condition type: {}", type);
+                logger.warn("Unknown simple condition type: {}", type);
                 result = true;
                 break;
         }
-        logger.trace("Condition '{}' for card '{}' evaluated to: {}", type, source.getDefinition().getName(), result);
         return result;
     }
 
@@ -228,6 +279,7 @@ public class EffectProcessor {
                 case HEAL_TARGET -> handleHeal(game, params, source, owner, context);
                 case BUFF_STAT -> handleBuffStat(game, params, source, owner, context, false);
                 case DEBUFF_STAT -> handleBuffStat(game, params, source, owner, context, true);
+                case SET_STAT -> handleSetStat(game, params, source, owner, context);
                 case DRAW_CARDS -> handleDrawCards(game, params, owner, context);
                 case APPLY_FLAG -> handleApplyFlag(game, params, source, owner, context);
                 case TRANSFORM_CARD -> handleTransformCard(game, params, source, owner, context);
@@ -239,7 +291,7 @@ public class EffectProcessor {
                 case APPLY_AURA_BUFF -> handleApplyAuraBuff(game, params, source, owner, context);
                 case CHAINED_EFFECTS -> handleChainedEffects(game, params, source, owner, context);
                 case CHOOSE_RANDOM_EFFECT -> handleChooseRandomEffect(game, params, source, owner, context);
-                case MODIFY_INCOMING_DAMAGE -> List.of(); // Handled elsewhere
+                case MODIFY_INCOMING_DAMAGE, MODIFY_OUTGOING_DAMAGE -> List.of(); // Handled elsewhere
                 default -> {
                     logger.warn("Unhandled action type in EffectProcessor: {}", actionName);
                     yield List.of();
@@ -254,30 +306,33 @@ public class EffectProcessor {
     @SuppressWarnings("unchecked")
     private List<GameEvent> handleScheduleAction(Game game, Map<String, Object> params, CardInstance source,
             Player owner, Map<String, Object> context) {
-        // This action does not generate an event. It directly modifies the card's
-        // instance state.
         Integer delay = (Integer) params.get("delayInTurns");
         Map<String, Object> scheduledEffect = (Map<String, Object>) params.get("scheduledEffect");
         if (delay == null || scheduledEffect == null)
             return List.of();
 
-        int executionTurn = game.getTurnNumber() + delay;
-        source.addScheduledAction(executionTurn, scheduledEffect);
+        List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.getOrDefault("targets", "SELF"),
+                source, owner,
+                context, game);
 
-        return List.of();
+        int executionTurn = game.getTurnNumber() + delay;
+
+        for (CardInstance target : targets) {
+            target.addScheduledAction(executionTurn, scheduledEffect);
+        }
+
+        return List.of(new GameLogMessageEvent(game.getGameId(), game.getTurnNumber(),
+                "A future effect has been scheduled.", "EFFECT"));
     }
 
     private List<GameEvent> handleVanish(Game game, Map<String, Object> params, CardInstance source, Player owner,
             Map<String, Object> context) {
-        // Vanishing is simple: remove from board, put into limbo.
-        // We assume the target is SELF for now.
         return List.of(new CardVanishedEvent(
                 game.getGameId(), game.getTurnNumber(), source.getInstanceId(), owner.getPlayerId()));
     }
 
     private List<GameEvent> handleReappear(Game game, Map<String, Object> params, CardInstance source, Player owner,
             Map<String, Object> context) {
-        // Find an empty slot on the owner's field.
         int targetSlot = -1;
         List<CardInstance> field = owner.getFieldInternal();
         for (int i = 0; i < field.size(); i++) {
@@ -287,7 +342,6 @@ public class EffectProcessor {
             }
         }
         if (targetSlot == -1) {
-            // Field is full, card is lost. Could generate a different event here.
             return List.of(new GameLogMessageEvent(game.getGameId(), game.getTurnNumber(),
                     source.getDefinition().getName() + " tried to reappear, but the field was full!", "WARN"));
         }
@@ -299,7 +353,6 @@ public class EffectProcessor {
     private List<GameEvent> handleTransformCard(Game game, Map<String, Object> params, CardInstance source,
             Player owner, Map<String, Object> context) {
         List<GameEvent> events = new ArrayList<>();
-        // In a transformation, the target is usually the source card itself.
         List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
                 context, game);
         String newCardId = (String) params.get("newCardId");
@@ -308,23 +361,15 @@ public class EffectProcessor {
             return events;
         }
 
-        // We don't have access to the full definition here, so we'll create a
-        // placeholder DTO.
-        // The Game.apply method will use the cardId to get the full definition.
         CardInstanceDTO newCardDto = new CardInstanceDTO();
         newCardDto.setCardId(newCardId);
 
-        // Allow the effect to specify the starting life of the new form.
-        // If not specified, it will default to the base life from its definition.
-        // For Chemadam, we want it to have its default life.
         Integer startingLife = (Integer) params.get("startingLife");
+        if (startingLife != null) {
+            newCardDto.setCurrentLife(startingLife);
+        }
 
         for (CardInstance target : targets) {
-            // If starting life isn't specified in the effect, we can't determine it here.
-            // We'll set it to a default (e.g., 1) and let Game.apply figure out the real
-            // value from the new definition.
-            newCardDto.setCurrentLife(startingLife != null ? startingLife : 1);
-
             events.add(new CardTransformedEvent(
                     game.getGameId(),
                     game.getTurnNumber(),
@@ -337,14 +382,9 @@ public class EffectProcessor {
     @SuppressWarnings("unchecked")
     private List<GameEvent> handleApplyAuraBuff(Game game, Map<String, Object> params, CardInstance source,
             Player owner, Map<String, Object> context) {
-        // This action does not generate events. It directly mutates the simulation
-        // state's aura buffs.
-
-        // START: ADDITIONS
         ValueResolver resolver = new ValueResolver();
         Map<String, Object> valueResolutionContext = new HashMap<>(context);
         valueResolutionContext.put("game", game);
-        // END: ADDITIONS
 
         List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
                 context, game);
@@ -355,29 +395,20 @@ public class EffectProcessor {
             if (buffs != null) {
                 for (Map<String, Object> buff : buffs) {
                     String stat = (String) buff.get("stat");
-
-                    // --- START: MODIFICATION ---
-                    Object amountSource = buff.get("amount"); // Get the raw value (Integer or Map)
-                    // When resolving value for an aura on a target, the "SELF" context within the
-                    // value
-                    // should refer to the card being buffed (the target), not the source of the
-                    // aura.
+                    Object amountSource = buff.get("amount");
                     Integer amount = resolver.resolveValue(amountSource, target, owner, valueResolutionContext);
-                    // --- END: MODIFICATION ---
-
                     if (stat != null && amount != null) {
                         target.addAuraBuff(stat, amount);
                     }
                 }
             }
-
             if (flags != null) {
                 for (Map.Entry<String, Object> flagEntry : flags.entrySet()) {
-                    target.setEffectFlag(flagEntry.getKey(), flagEntry.getValue());
+                    target.setEffectFlag(flagEntry.getKey() + "_AURA", flagEntry.getValue());
                 }
             }
         }
-        return List.of(); // No events are generated here.
+        return List.of();
     }
 
     @SuppressWarnings("unchecked")
@@ -400,11 +431,10 @@ public class EffectProcessor {
         List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
                 context, game);
         for (CardInstance target : targets) {
-            // A destroy action is just lethal damage.
             events.add(new CombatDamageDealtEvent(
                     game.getGameId(), game.getTurnNumber(),
                     source.getInstanceId(), target.getInstanceId(),
-                    999, 999, target.getCurrentLife(), 0));
+                    "EFFECT", 999, 999, target.getCurrentLife(), 0));
         }
         return events;
     }
@@ -431,14 +461,33 @@ public class EffectProcessor {
         int amount = (int) params.getOrDefault("amount", 1);
         for (int i = 0; i < amount; i++) {
             if (owner.getDeck().size() - i <= 0)
-                break; // Stop if deck will be empty
-            // We peek at the card for the DTO but the actual draw happens in Game.apply()
+                break;
             CardInstance cardToDraw = owner.getDeck().getCards().get(i);
             events.add(new PlayerDrewCardEvent(
                     game.getGameId(), game.getTurnNumber(), owner.getPlayerId(),
                     GameStateMapper.mapCardInstanceToDTO(cardToDraw),
                     owner.getHand().size() + i + 1,
                     owner.getDeck().size() - i - 1));
+        }
+        return events;
+    }
+
+    private List<GameEvent> handleSetStat(Game game, Map<String, Object> params, CardInstance source, Player owner,
+            Map<String, Object> context) {
+        List<GameEvent> events = new ArrayList<>();
+        List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
+                context, game);
+        String stat = (String) params.get("stat");
+
+        ValueResolver resolver = new ValueResolver();
+        context.put("game", game);
+        Integer value = resolver.resolveValue(params.get("value"), source, owner, context);
+        if (value == null)
+            return events;
+
+        for (CardInstance target : targets) {
+            events.add(
+                    new CardStatSetEvent(game.getGameId(), game.getTurnNumber(), target.getInstanceId(), stat, value));
         }
         return events;
     }
@@ -462,15 +511,9 @@ public class EffectProcessor {
         for (CardInstance target : targets) {
             int statAfter = 0;
             switch (stat.toUpperCase()) {
-                case "ATK":
-                    statAfter = target.getCurrentAttack() + finalAmount;
-                    break;
-                case "DEF":
-                    statAfter = target.getCurrentDefense() + finalAmount;
-                    break;
-                case "MAX_LIFE":
-                    statAfter = target.getCurrentLife() + finalAmount;
-                    break; // Approximated
+                case "ATK" -> statAfter = target.getCurrentAttack() + finalAmount;
+                case "DEF" -> statAfter = target.getCurrentDefense() + finalAmount;
+                case "MAX_LIFE" -> statAfter = target.getCurrentLife() + finalAmount;
             }
             if (isDebuff) {
                 events.add(new CardDebuffedEvent(game.getGameId(), game.getTurnNumber(), target.getInstanceId(), stat,
@@ -496,8 +539,9 @@ public class EffectProcessor {
             return events;
 
         for (CardInstance target : targets) {
-            int maxLife = target.getDefinition().getInitialLife()
-                    + target.temporaryStatBuffs.getOrDefault("MAX_LIFE", 0);
+            int maxLife = target.getBaseLife()
+                    + target.temporaryStatBuffs.getOrDefault("MAX_LIFE", 0)
+                    + target.auraStatBuffs.getOrDefault("MAX_LIFE", 0);
             int lifeAfter = Math.min(maxLife, target.getCurrentLife() + amount);
             events.add(new CardHealedEvent(game.getGameId(), game.getTurnNumber(), target.getInstanceId(), amount,
                     lifeAfter));
@@ -518,13 +562,14 @@ public class EffectProcessor {
             return events;
 
         for (CardInstance target : targets) {
-            int finalDamage = calculateFinalDamage(game, amount, source, target);
+            int finalDamage = calculateFinalDamage(game, amount, source, target, "EFFECT");
 
             events.add(new com.jamestiago.capycards.game.events.CombatDamageDealtEvent(
                     game.getGameId(),
                     game.getTurnNumber(),
                     source.getInstanceId(),
                     target.getInstanceId(),
+                    "EFFECT",
                     amount, // raw damage
                     finalDamage,
                     target.getCurrentLife(),
@@ -533,47 +578,93 @@ public class EffectProcessor {
         return events;
     }
 
-    private int calculateFinalDamage(Game game, int baseDamage, CardInstance source, CardInstance target) {
-        int actualDamage = baseDamage;
-        Player targetOwner = game.getOwnerOfCardInstance(target);
-        String configJson = target.getDefinition().getEffectConfiguration();
+    public int calculateFinalDamage(Game game, int baseDamage, CardInstance source, CardInstance target,
+            String damageType) {
+        int modifiedDamage = baseDamage;
 
-        if (configJson != null && !configJson.isBlank()) {
-            try {
-                List<Map<String, Object>> effectConfigs = objectMapper.readValue(configJson, new TypeReference<>() {
-                });
-                for (Map<String, Object> config : effectConfigs) {
-                    if ("CONTINUOUS_DEFENSIVE".equalsIgnoreCase((String) config.get("trigger"))
-                            && "MODIFY_INCOMING_DAMAGE".equalsIgnoreCase((String) config.get("action"))) {
-                        Map<String, Object> defensiveContext = new HashMap<>();
-                        defensiveContext.put("eventSource", source);
-                        defensiveContext.put("damageAmount", baseDamage);
-                        if (checkCondition(game, config, target, targetOwner, defensiveContext)) {
-                            @SuppressWarnings("unchecked")
-                            Map<String, Object> params = (Map<String, Object>) config.get("params");
-                            String mode = (String) params.get("mode");
-                            if ("SET_ABSOLUTE".equalsIgnoreCase(mode)) {
-                                actualDamage = (int) params.get("amount");
-                            } else if ("REDUCE_BY".equalsIgnoreCase(mode)) {
-                                actualDamage -= (int) params.get("amount");
-                            }
+        // Step 1: Apply source's outgoing damage modifiers
+        modifiedDamage = applyOutgoingDamageModifiers(game, modifiedDamage, source, target);
+
+        // Step 2: Apply target's incoming damage modifiers
+        modifiedDamage = applyIncomingDamageModifiers(game, modifiedDamage, source, target);
+
+        // Step 3: Subtract defense (if applicable)
+        if (!source.getBooleanEffectFlag("ignores_defense_AURA")) {
+            modifiedDamage -= target.getCurrentDefense();
+        }
+
+        // Step 4: Ensure damage is non-negative
+        return Math.max(0, modifiedDamage);
+    }
+
+    private int applyOutgoingDamageModifiers(Game game, int currentDamage, CardInstance source, CardInstance target) {
+        int modifiedDamage = currentDamage;
+        Player sourceOwner = game.getOwnerOfCardInstance(source);
+        String configJson = source.getDefinition().getEffectConfiguration();
+        if (configJson == null || configJson.isBlank())
+            return modifiedDamage;
+
+        try {
+            List<Map<String, Object>> effectConfigs = objectMapper.readValue(configJson, new TypeReference<>() {
+            });
+            for (Map<String, Object> config : effectConfigs) {
+                if ("CONTINUOUS_OFFENSIVE".equalsIgnoreCase((String) config.get("trigger"))
+                        && "MODIFY_OUTGOING_DAMAGE".equalsIgnoreCase((String) config.get("action"))) {
+
+                    Map<String, Object> offensiveContext = new HashMap<>();
+                    offensiveContext.put("eventTarget", target); // The card being hit
+                    offensiveContext.put("damageAmount", currentDamage);
+
+                    if (checkCondition(game, config, source, sourceOwner, offensiveContext)) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> params = (Map<String, Object>) config.get("params");
+                        String mode = (String) params.get("mode");
+                        if ("ADD_FLAT".equalsIgnoreCase(mode)) {
+                            modifiedDamage += (int) params.get("amount");
                         }
                     }
                 }
-            } catch (IOException e) {
-                /* ignore */ }
-        }
-
-        // Subtract defense unless the source ignores it
-        if (!source.getBooleanEffectFlag("ignores_defense_AURA")) {
-            actualDamage -= target.getCurrentDefense();
-        }
-
-        // Now, return the final value, ensuring it's not negative.
-        return Math.max(0, actualDamage);
+            }
+        } catch (IOException e) {
+            /* ignore */ }
+        return modifiedDamage;
     }
 
-    // NEW METHOD TO HANDLE THE LOGIC
+    private int applyIncomingDamageModifiers(Game game, int currentDamage, CardInstance source, CardInstance target) {
+        int modifiedDamage = currentDamage;
+        Player targetOwner = game.getOwnerOfCardInstance(target);
+        String configJson = target.getDefinition().getEffectConfiguration();
+        if (configJson == null || configJson.isBlank())
+            return modifiedDamage;
+
+        try {
+            List<Map<String, Object>> effectConfigs = objectMapper.readValue(configJson, new TypeReference<>() {
+            });
+            for (Map<String, Object> config : effectConfigs) {
+                if ("CONTINUOUS_DEFENSIVE".equalsIgnoreCase((String) config.get("trigger"))
+                        && "MODIFY_INCOMING_DAMAGE".equalsIgnoreCase((String) config.get("action"))) {
+                    Map<String, Object> defensiveContext = new HashMap<>();
+                    defensiveContext.put("eventSource", source); // The card dealing the damage
+                    defensiveContext.put("damageAmount", currentDamage);
+                    if (checkCondition(game, config, target, targetOwner, defensiveContext)) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> params = (Map<String, Object>) config.get("params");
+                        String mode = (String) params.get("mode");
+                        if ("SET_ABSOLUTE".equalsIgnoreCase(mode)) {
+                            modifiedDamage = (int) params.get("amount");
+                        } else if ("REDUCE_BY".equalsIgnoreCase(mode)) {
+                            modifiedDamage -= (int) params.get("amount");
+                        } else if ("ADD_FLAT".equalsIgnoreCase(mode)) {
+                            modifiedDamage += (int) params.get("amount");
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            /* ignore */ }
+        return modifiedDamage;
+    }
+
     @SuppressWarnings("unchecked")
     private List<GameEvent> handleChooseRandomEffect(Game game, Map<String, Object> params, CardInstance source,
             Player owner, Map<String, Object> context) {
@@ -584,27 +675,21 @@ public class EffectProcessor {
             return List.of();
         }
 
-        // Select a random effect configuration from the list
         int randomIndex = random.nextInt(choices.size());
         Map<String, Object> chosenEffectConfig = choices.get(randomIndex);
 
         logger.trace("Randomly chose effect #{} for {}: {}", randomIndex, source.getDefinition().getName(),
                 chosenEffectConfig.get("action"));
 
-        // Recursively call executeAction with the chosen effect.
-        // This allows the chosen effect to be any other action (e.g., DEAL_DAMAGE,
-        // APPLY_FLAG).
         return executeAction(game, chosenEffectConfig, source, owner, context);
     }
 
-    // <<< ADD THE NEW HANDLER METHOD >>>
     private List<GameEvent> handleModifyFlag(Game game, Map<String, Object> params, CardInstance source, Player owner,
             Map<String, Object> context) {
         List<GameEvent> events = new ArrayList<>();
         List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
                 context, game);
         String flagName = (String) params.get("flagName");
-        // "mode" can be "INCREMENT", "DECREMENT", or "SET"
         String mode = ((String) params.getOrDefault("mode", "INCREMENT")).toUpperCase();
 
         context.put("game", game);
@@ -614,12 +699,10 @@ public class EffectProcessor {
             context.put("game", game);
             amount = resolver.resolveValue(params.get("amount"), source, owner, context);
         } else {
-            amount = 1; // Default to 1 if the 'amount' key is not present
+            amount = 1;
         }
 
         if (amount == null) {
-            // This now only triggers if 'amount' was specified but couldn't be resolved,
-            // which is a more meaningful error.
             amount = 1;
         }
 
@@ -635,17 +718,13 @@ public class EffectProcessor {
                 case "SET" -> amount;
                 default -> currentValue + amount; // Default to INCREMENT
             };
-
-            // This action generates a CardFlagChangedEvent, which the Game.apply method
-            // will use to update the state.
             events.add(new CardFlagChangedEvent(
                     game.getGameId(),
                     game.getTurnNumber(),
                     target.getInstanceId(),
                     flagName,
                     newValue,
-                    "PERMANENT" // Numeric flags are usually permanent until reset
-            ));
+                    "PERMANENT"));
         }
         return events;
     }

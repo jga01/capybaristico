@@ -116,23 +116,24 @@ public class Player {
         this.attacksDeclaredThisTurn++;
     }
 
-    public void resetTurnActions() {
+    public void startOfTurnReset() {
         this.attacksDeclaredThisTurn = 0;
         for (CardInstance card : field) {
             if (card != null) {
                 card.setExhausted(false);
                 card.resetTurnSpecificState();
-                card.removeEffectFlag("status_silenced");
             }
         }
     }
 
-    public CardInstance removeCardFromFieldByInstanceId(String instanceId) {
+    public CardInstance removeCardFromFieldByInstanceId(String instanceId, boolean addToDiscard) {
         for (int i = 0; i < field.size(); i++) {
             CardInstance card = field.get(i);
             if (card != null && card.getInstanceId().equals(instanceId)) {
                 field.set(i, null);
-                discardPile.add(card);
+                if (addToDiscard) {
+                    discardPile.add(card);
+                }
                 return card;
             }
         }
@@ -165,7 +166,6 @@ public class Player {
     }
 
     // Internal mutable getters for engine/game state manipulation.
-    // Changed to public to allow access from the 'effects' package.
     public List<CardInstance> getHandInternal() {
         return this.hand;
     }

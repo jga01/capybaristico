@@ -4,6 +4,8 @@ import com.jamestiago.capycards.model.Card;
 import com.jamestiago.capycards.game.events.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,7 +24,8 @@ public class Game {
     private final Map<String, Object> gameFlags = new ConcurrentHashMap<>();
     private transient final Map<String, Card> allCardDefinitions;
 
-    private final Map<String, CardInstance> cardsInLimbo = new ConcurrentHashMap<>();
+    // A card in limbo now stores its owner's ID
+    private final Map<String, Map.Entry<CardInstance, String>> cardsInLimbo = new ConcurrentHashMap<>();
 
     public enum GameState {
         WAITING_FOR_PLAYERS,
@@ -62,13 +65,16 @@ public class Game {
         this.gameState = other.gameState;
         this.allCardDefinitions = other.allCardDefinitions;
 
-        other.cardsInLimbo.forEach((id, card) -> this.cardsInLimbo.put(id, new CardInstance(card)));
+        // Deep copy limbo
+        other.cardsInLimbo.forEach((id, entry) -> {
+            CardInstance copiedCard = new CardInstance(entry.getKey());
+            String ownerId = entry.getValue();
+            this.cardsInLimbo.put(id, new AbstractMap.SimpleEntry<>(copiedCard, ownerId));
+        });
 
-        // Use the Player copy constructor
         this.player1 = new Player(other.player1);
         this.player2 = new Player(other.player2);
 
-        // Ensure currentPlayer reference points to the new copied player object
         if (other.currentPlayer != null) {
             this.currentPlayer = (other.currentPlayer.getPlayerId().equals(this.player1.getPlayerId()))
                     ? this.player1
@@ -77,20 +83,45 @@ public class Game {
             this.currentPlayer = null;
         }
 
-        // Deep copy game flags
         this.gameFlags.putAll(other.gameFlags);
+
+        fixupCardReferences();
 
         logger.trace("[{}] Cloned game instance for simulation.", this.gameId);
     }
 
-    public void addCardToLimbo(CardInstance card) {
-        if (card != null) {
-            this.cardsInLimbo.put(card.getInstanceId(), card);
+    private void fixupCardReferences() {
+        // Create a map of all old instance IDs to new card instances
+        Map<String, CardInstance> allNewCards = new ConcurrentHashMap<>();
+        player1.getFieldInternal().forEach(c -> {
+            if (c != null)
+                allNewCards.put(c.getInstanceId(), c);
+        });
+        player2.getFieldInternal().forEach(c -> {
+            if (c != null)
+                allNewCards.put(c.getInstanceId(), c);
+        });
+        cardsInLimbo.values().forEach(entry -> allNewCards.put(entry.getKey().getInstanceId(), entry.getKey()));
+
+        // Iterate through all new cards and update their lastDamageSourceCard reference
+        allNewCards.values().forEach(card -> {
+            CardInstance oldSource = card.getLastDamageSourceCard();
+            if (oldSource != null) {
+                CardInstance newSource = allNewCards.get(oldSource.getInstanceId());
+                card.setLastDamageSourceCard(newSource); // Update the reference
+            }
+        });
+    }
+
+    public void addCardToLimbo(CardInstance card, String ownerId) {
+        if (card != null && ownerId != null) {
+            this.cardsInLimbo.put(card.getInstanceId(), new AbstractMap.SimpleEntry<>(card, ownerId));
         }
     }
 
     public CardInstance removeCardFromLimbo(String instanceId) {
-        return this.cardsInLimbo.remove(instanceId);
+        Map.Entry<CardInstance, String> entry = this.cardsInLimbo.remove(instanceId);
+        return (entry != null) ? entry.getKey() : null;
     }
 
     // The core method for mutating game state. It trusts the event completely.
@@ -123,6 +154,8 @@ public class Game {
             applyCardBuffed(e);
         } else if (event instanceof CardDebuffedEvent e) {
             applyCardDebuffed(e);
+        } else if (event instanceof CardStatSetEvent e) {
+            applyCardStatSet(e);
         } else if (event instanceof CardFlagChangedEvent e) {
             applyCardFlagChanged(e);
         } else if (event instanceof CardTransformedEvent e) {
@@ -132,8 +165,6 @@ public class Game {
         } else if (event instanceof CardReappearedEvent e) {
             applyCardReappeared(e);
         }
-        // Events like GameLogMessageEvent or AbilityActivatedEvent don't mutate state,
-        // so no handler needed.
         updateInternalGameState();
         logger.trace("[{}] FINISHED applying event: {}. Current turn: {}, Current player: {}, Game state: {}", gameId,
                 event.getClass().getSimpleName(), this.turnNumber,
@@ -145,10 +176,9 @@ public class Game {
         if (owner == null)
             return;
 
-        CardInstance card = owner.removeCardFromFieldByInstanceId(event.instanceId);
+        CardInstance card = owner.removeCardFromFieldByInstanceId(event.instanceId, false); // Don't add to discard
         if (card != null) {
-            // We move it to limbo instead of the discard pile.
-            addCardToLimbo(card);
+            addCardToLimbo(card, owner.getPlayerId());
         }
     }
 
@@ -159,7 +189,6 @@ public class Game {
 
         CardInstance card = removeCardFromLimbo(event.card.getInstanceId());
         if (card != null) {
-            // Refresh its state and place it on the field
             card.setExhausted(true);
             card.resetTurnSpecificState();
             owner.getFieldInternal().set(event.toFieldSlot, card);
@@ -170,7 +199,6 @@ public class Game {
         this.turnNumber = 1;
         this.currentPlayer = getPlayerById(event.startingPlayerId);
         if (this.currentPlayer != null) {
-            // The initial draw is now part of the game logic, not the service.
             this.currentPlayer.initialDraw(Player.MAX_HAND_SIZE);
             getOpponent(this.currentPlayer).initialDraw(Player.MAX_HAND_SIZE);
             this.gameState = this.currentPlayer == player1 ? GameState.PLAYER_1_TURN : GameState.PLAYER_2_TURN;
@@ -183,7 +211,7 @@ public class Game {
         this.turnNumber = event.newTurnNumber;
         this.currentPlayer = getPlayerById(event.newTurnPlayerId);
         if (this.currentPlayer != null) {
-            this.currentPlayer.resetTurnActions();
+            this.currentPlayer.startOfTurnReset();
         }
     }
 
@@ -199,7 +227,6 @@ public class Game {
         if (p != null) {
             CardInstance card = p.playCardFromHandToField(event.fromHandIndex, event.toFieldSlot);
             if (card != null) {
-                // Summoning sickness
                 card.setExhausted(true);
             }
         }
@@ -208,12 +235,9 @@ public class Game {
     private void applyAttackDeclared(AttackDeclaredEvent event) {
         Player attackerPlayer = getPlayerById(event.attackerPlayerId);
         if (attackerPlayer != null) {
-            // Correctly increment the counter here
             attackerPlayer.incrementAttacksDeclaredThisTurn();
-
             CardInstance attackerCard = findCardInstanceFromAnyField(event.attackerInstanceId);
             if (attackerCard != null) {
-                // Correctly exhaust the card here
                 attackerCard.setExhausted(true);
             }
         }
@@ -221,17 +245,16 @@ public class Game {
 
     private void applyCombatDamageDealt(CombatDamageDealtEvent event) {
         CardInstance defender = findCardInstanceFromAnyField(event.defenderInstanceId);
+        CardInstance attacker = findCardInstanceFromAnyField(event.attackerInstanceId);
         if (defender != null) {
-            // The event contains the final life total, so we just set it.
             defender.setCurrentLife(event.defenderLifeAfter);
+            defender.setLastDamageSourceCard(attacker);
         }
     }
 
     private void applyCardStatsChanged(CardStatsChangedEvent event) {
         CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
         if (card != null) {
-            // Note: This applies the final calculated stat. It doesn't re-run the logic.
-            // This is correct for this architecture.
             card.setBaseAttack(event.newAttack);
             card.setBaseDefense(event.newDefense);
             card.setCurrentLife(event.newLife);
@@ -241,7 +264,6 @@ public class Game {
     private void applyCardHealed(CardHealedEvent event) {
         CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
         if (card != null) {
-            // The event now contains the correct final life total.
             card.setCurrentLife(event.lifeAfter);
         }
     }
@@ -249,7 +271,7 @@ public class Game {
     private void applyCardDestroyed(CardDestroyedEvent event) {
         Player owner = getPlayerById(event.ownerPlayerId);
         if (owner != null) {
-            owner.removeCardFromFieldByInstanceId(event.card.getInstanceId());
+            owner.removeCardFromFieldByInstanceId(event.card.getInstanceId(), true); // Add to discard
         }
     }
 
@@ -280,11 +302,11 @@ public class Game {
 
         if (event.isPermanent) {
             switch (event.stat.toUpperCase()) {
-                case "ATK" -> card.setBaseAttack(card.baseAttack + event.amount);
-                case "DEF" -> card.setBaseDefense(card.baseDefense + event.amount);
+                case "ATK" -> card.setBaseAttack(card.getBaseAttack() + event.amount);
+                case "DEF" -> card.setBaseDefense(card.getBaseDefense() + event.amount);
                 case "MAX_LIFE" -> {
-                    card.setBaseLife(card.baseLife + event.amount);
-                    card.heal(event.amount); // Also heal for the amount of max life gained
+                    card.setBaseLife(card.getBaseLife() + event.amount);
+                    card.heal(event.amount);
                 }
             }
         } else {
@@ -296,17 +318,27 @@ public class Game {
         CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
         if (card == null)
             return;
-
-        // Treat debuffs as negative buffs
         int negativeAmount = -Math.abs(event.amount);
         if (event.isPermanent) {
             switch (event.stat.toUpperCase()) {
-                case "ATK" -> card.setBaseAttack(card.baseAttack + negativeAmount);
-                case "DEF" -> card.setBaseDefense(card.baseDefense + negativeAmount);
-                case "MAX_LIFE" -> card.setBaseLife(card.baseLife + negativeAmount);
+                case "ATK" -> card.setBaseAttack(card.getBaseAttack() + negativeAmount);
+                case "DEF" -> card.setBaseDefense(card.getBaseDefense() + negativeAmount);
+                case "MAX_LIFE" -> card.setBaseLife(card.getBaseLife() + negativeAmount);
             }
         } else {
             card.addTemporaryBuff(event.stat, negativeAmount);
+        }
+    }
+
+    private void applyCardStatSet(CardStatSetEvent event) {
+        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        if (card == null)
+            return;
+        switch (event.stat.toUpperCase()) {
+            case "ATK" -> card.setBaseAttack(event.value);
+            case "DEF" -> card.setBaseDefense(event.value);
+            case "MAX_LIFE" -> card.setBaseLife(event.value);
+            case "LIFE" -> card.setCurrentLife(event.value);
         }
     }
 
@@ -325,19 +357,15 @@ public class Game {
         CardInstance originalCard = findCardInstanceFromAnyField(event.originalInstanceId);
         if (originalCard == null)
             return;
-
         Player owner = getOwnerOfCardInstance(originalCard);
         if (owner == null)
             return;
-
-        // Find the full definition of the new card form
         Card newCardDefinition = allCardDefinitions.get(event.newCardDto.getCardId());
         if (newCardDefinition == null) {
             logger.error("TRANSFORM FAILED: Card definition for '{}' not found.", event.newCardDto.getCardId());
             return;
         }
 
-        // Find the slot of the original card
         int slotIndex = -1;
         for (int i = 0; i < owner.getFieldInternal().size(); i++) {
             CardInstance card = owner.getFieldInternal().get(i);
@@ -348,15 +376,17 @@ public class Game {
         }
 
         if (slotIndex != -1) {
-            // Create a new CardInstance from the DEFINITION
             CardInstance newCardState = new CardInstance(newCardDefinition);
 
-            // Carry over relevant state from the DTO in the event
-            // This allows effects to set the transformed card's starting health
-            newCardState.setCurrentLife(event.newCardDto.getCurrentLife());
-            newCardState.setExhausted(true); // Transformed cards usually suffer from summoning sickness
+            // Use life from event DTO if present, otherwise use definition's initial life
+            Integer lifeFromEvent = event.newCardDto.getCurrentLife();
+            if (lifeFromEvent != null && lifeFromEvent > 0) {
+                newCardState.setCurrentLife(lifeFromEvent);
+            } else {
+                newCardState.setCurrentLife(newCardDefinition.getInitialLife());
+            }
 
-            // Overwrite the card in the field slot
+            newCardState.setExhausted(true);
             owner.getFieldInternal().set(slotIndex, newCardState);
         }
     }
@@ -364,7 +394,6 @@ public class Game {
     private void updateInternalGameState() {
         if (this.gameState.name().contains("GAME_OVER"))
             return;
-
         if (this.currentPlayer == player1) {
             this.gameState = GameState.PLAYER_1_TURN;
         } else if (this.currentPlayer == player2) {
@@ -372,10 +401,7 @@ public class Game {
         }
     }
 
-    // --- UTILITY METHODS ---
-
-    // <<< ADD THIS GETTER METHOD >>>
-    public Map<String, CardInstance> getCardsInLimbo() {
+    public Map<String, Map.Entry<CardInstance, String>> getCardsInLimbo() {
         return cardsInLimbo;
     }
 
@@ -406,26 +432,29 @@ public class Game {
         if (cardInstance == null)
             return null;
         String instanceId = cardInstance.getInstanceId();
-        if (player1 != null && player1.getFieldInternal().stream()
-                .anyMatch(c -> c != null && c.getInstanceId().equals(instanceId)))
+
+        if (player1 != null
+                && player1.getFieldInternal().stream().anyMatch(c -> c != null && c.getInstanceId().equals(instanceId)))
             return player1;
-        if (player2 != null && player2.getFieldInternal().stream()
-                .anyMatch(c -> c != null && c.getInstanceId().equals(instanceId)))
+        if (player2 != null
+                && player2.getFieldInternal().stream().anyMatch(c -> c != null && c.getInstanceId().equals(instanceId)))
             return player2;
+
+        // Check limbo
+        Map.Entry<CardInstance, String> limboEntry = cardsInLimbo.get(instanceId);
+        if (limboEntry != null) {
+            return getPlayerById(limboEntry.getValue());
+        }
+
         return null;
     }
 
     public Player getOpponent(Player player) {
         if (player == null)
             return null;
-        if (player == player1)
-            return player2;
-        if (player == player2)
-            return player1;
-        return null;
+        return player == player1 ? player2 : player1;
     }
 
-    // Getters
     public String getGameId() {
         return gameId;
     }
@@ -454,7 +483,6 @@ public class Game {
         return gameFlags;
     }
 
-    // Setters used for initialization by GameService before the game starts
     public void setGameState(GameState gameState) {
         this.gameState = gameState;
     }
