@@ -41,7 +41,6 @@ public class GameService {
   }
 
   private void loadAllCardDefinitions() {
-    // Same as previous version
     this.allCardDefinitions = cardRepository.findAll();
     if (this.allCardDefinitions.isEmpty()) {
       logger.warn("No card definitions found in the database! Attempting to seed.");
@@ -93,7 +92,20 @@ public class GameService {
         "Immune to all damage. If a European card is played, becomes ATK 1 / DEF 5 / LIFE 5. Gains +2 damage vs Indigenous and Capybara. Dies instantly if attacked by European.",
         """
             [
-              {"trigger":"CONTINUOUS_DEFENSIVE","action":"MODIFY_INCOMING_DAMAGE","params":{"amount":0,"mode":"SET_ABSOLUTE"}}
+              {"trigger":"CONTINUOUS_DEFENSIVE","action":"MODIFY_INCOMING_DAMAGE","params":{"amount":0,"mode":"SET_ABSOLUTE"}},
+              {
+                "trigger": "ON_SUMMON",
+                "condition": { "type": "TARGET_HAS_TYPE", "params": {"typeName": "European"} },
+                "action": "CHAINED_EFFECTS",
+                "params": {
+                  "effects": [
+                    {"action": "APPLY_FLAG", "params": {"targets": "SELF", "flagName": "transformed_by_european", "value": true}},
+                    {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "MAX_LIFE", "amount": 2, "isPermanent": true}},
+                    {"action": "BUFF_STAT", "params": {"targets": "SELF", "stat": "ATK", "amount": 1, "isPermanent": true}},
+                    {"action": "DEBUFF_STAT", "params": {"targets": "SELF", "stat": "DEF", "amount": 15, "isPermanent": true}}
+                  ]
+                }
+              }
             ]
             """,
         Rarity.UNCOMMON, "leonico.png",
@@ -206,10 +218,10 @@ public class GameService {
     cardsToSeed.add(new Card("CAP010", "Rossome", "American,Capybara", 2, 2, 3,
         "+2 damage from Kahina or Swettie. +5 DEF from American/Capybara damage.",
         """
-                [
-                  {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"BUFF_STAT","params":{"targets":"SELF","stat":"DEF","amount":5,"isPermanent":false}},
-                  {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"BUFF_STAT","params":{"targets":"SELF","stat":"DEF","amount":5,"isPermanent":false}}
-                ]
+            [
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"American"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":5}},
+              {"trigger":"CONTINUOUS_DEFENSIVE","condition":{"type":"SOURCE_HAS_TYPE","params":{"typeName":"Capybara"}},"action":"MODIFY_INCOMING_DAMAGE","params":{"mode":"REDUCE_BY","amount":5}}
+            ]
             """,
         Rarity.UNCOMMON,
         "rossome.png", "Takes one for the team."));
@@ -346,11 +358,13 @@ public class GameService {
         Rarity.RARE,
         "caioba.png",
         "The protector."));
-    cardsToSeed.add(new Card("CAP017", "Tomate", "American", 5, 1, 5,
+
+    Card tomateCard = new Card("CAP017", "Tomate", "American", 5, 1, 5,
         "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3. After 4 turns, duplicates a card.",
-        "[]",
-        Rarity.LEGENDARY, "tomate.png",
-        "The late game surprise."));
+        "[]", Rarity.LEGENDARY, "tomate.png", "The late game surprise.");
+    tomateCard.setDirectlyPlayable(false);
+    cardsToSeed.add(tomateCard);
+
     cardsToSeed.add(new Card("CAP018", "Gloire", "American", 6, 1, 0,
         "If damaged by European, stuns attacker 1 turn. Flip: heal +5 to any card or -3 damage. If dies by flip, revives as Undead (no effect). (VARIABLE LIFE: copy the highest life in field when joining. max 6)",
         """

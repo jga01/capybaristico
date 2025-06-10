@@ -46,6 +46,9 @@ public class Card {
     @Column(name = "flavor_text", columnDefinition = "TEXT")
     private String flavorText;
 
+    @Column(name = "is_directly_playable", nullable = false, columnDefinition = "boolean default true")
+    private boolean isDirectlyPlayable = true;
+
     public Card() {
     }
 
@@ -160,6 +163,14 @@ public class Card {
 
     public void setFlavorText(String flavorText) {
         this.flavorText = flavorText;
+    }
+
+    public boolean isDirectlyPlayable() {
+        return isDirectlyPlayable;
+    }
+
+    public void setDirectlyPlayable(boolean directlyPlayable) {
+        isDirectlyPlayable = directlyPlayable;
     }
 
     @Override
