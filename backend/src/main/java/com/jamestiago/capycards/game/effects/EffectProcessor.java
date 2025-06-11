@@ -243,8 +243,9 @@ public class EffectProcessor {
                 break;
             }
             default:
-                logger.warn("Unknown simple condition type: {}", type);
-                result = true;
+                // MODIFICATION: An unknown condition type should always fail safely.
+                logger.warn("Unknown simple condition type: {}. Condition will evaluate to false.", type);
+                result = false;
                 break;
         }
         return result;
