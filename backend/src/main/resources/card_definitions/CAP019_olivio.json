@@ -70,6 +70,50 @@
             }
         },
         {
+            "trigger": "ON_PLAY",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP015"
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "DESTROY_CARD",
+                        "params": {
+                            "targets": "SELF"
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "FRIENDLY_CARD_WITH_ID",
+                            "context": {
+                                "cardId": "CAP015"
+                            },
+                            "stat": "MAX_LIFE",
+                            "amount": 15,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "FRIENDLY_CARD_WITH_ID",
+                            "context": {
+                                "cardId": "CAP015"
+                            },
+                            "stat": "ATK",
+                            "amount": 5,
+                            "isPermanent": true
+                        }
+                    }
+                ]
+            }
+        },
+        {
             "trigger": "ACTIVATED",
             "abilityOptionIndex": 0,
             "name": "Capybara Wrath",
