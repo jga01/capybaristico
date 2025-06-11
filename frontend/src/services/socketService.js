@@ -59,8 +59,7 @@ export const getSocket = () => {
     }
     return socket;
 };
-
-// --- LOBBY ACTIONS (no changes from here down) ---
+// --- LOBBY ACTIONS ---
 export const emitCreateLobby = (data) => {
     const currentSocket = getSocket();
     if (!currentSocket) return;
@@ -77,7 +76,17 @@ export const emitCreateLobby = (data) => {
         alert('Not connected to server. Please try again.');
     }
 };
-
+export const emitCreateAiGame = (data) => {
+    const currentSocket = getSocket();
+    if (!currentSocket) return;
+    if (currentSocket.connected) {
+        log('EMIT create_ai_game', data);
+        currentSocket.emit('create_ai_game', data);
+    } else {
+        console.error('Socket not connected. Cannot emit create_ai_game.');
+        alert('Not connected to server. Please try again.');
+    }
+};
 export const onLobbyCreated = (callback) => {
     const currentSocket = getSocket();
     if (currentSocket) currentSocket.on('lobby_created', callback);

@@ -4,16 +4,14 @@ import {
     emitCreateLobby, emitGetOpenLobbies, emitJoinLobby,
     onLobbyCreated, offLobbyCreated, onLobbyError, offLobbyError,
     onOpenLobbiesList, offOpenLobbiesList, onOpenLobbiesUpdate, offOpenLobbiesUpdate,
-    onJoinLobbyFailed, offJoinLobbyFailed
+    onJoinLobbyFailed, offJoinLobbyFailed,
+    emitCreateAiGame // New import
 } from '../services/socketService';
 import { log } from '../services/loggingService';
-
 const LobbyContext = createContext(null);
-
 export const useLobby = () => {
     return useContext(LobbyContext);
 };
-
 export const LobbyProvider = ({ children }) => {
     const { socket, isConnected } = useSocket();
     const [displayName, setDisplayName] = useState('');
@@ -22,7 +20,6 @@ export const LobbyProvider = ({ children }) => {
     const [error, setError] = useState('');
     const [isJoining, setIsJoining] = useState(false);
     const [waitingMessage, setWaitingMessage] = useState('');
-
     const handleLobbyCreated = useCallback((data) => {
         setLobbyId(data.lobbyId);
         setWaitingMessage(data.message || `Lobby ${data.lobbyId} created. Waiting...`);
@@ -80,6 +77,15 @@ export const LobbyProvider = ({ children }) => {
         emitJoinLobby({ lobbyId: lobbyIdToJoin, displayName });
     }, [displayName, isConnected]);
 
+    const createAiGame = useCallback(() => {
+        if (!displayName.trim()) { setError('Please enter a display name.'); return; }
+        if (!isConnected) { setError('Not connected to the server.'); return; }
+        log('ACTION: Create AI Game', { displayName });
+        setError('');
+        setIsJoining(true); // Re-use the joining flag to disable buttons
+        emitCreateAiGame({ displayName });
+    }, [displayName, isConnected]);
+
     const refreshLobbies = useCallback(() => {
         if (isConnected) {
             setError('');
@@ -107,7 +113,8 @@ export const LobbyProvider = ({ children }) => {
         joinLobby,
         refreshLobbies,
         resetLobbyState,
-    }), [displayName, lobbyId, openLobbies, error, isJoining, waitingMessage, createLobby, joinLobby, refreshLobbies, resetLobbyState]);
+        createAiGame, // Expose the new function
+    }), [displayName, lobbyId, openLobbies, error, isJoining, waitingMessage, createLobby, joinLobby, refreshLobbies, resetLobbyState, createAiGame]);
 
     return (
         <LobbyContext.Provider value={value}>

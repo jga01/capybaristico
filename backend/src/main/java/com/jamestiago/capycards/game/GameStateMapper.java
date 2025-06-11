@@ -93,7 +93,7 @@ public class GameStateMapper {
         return dto;
     }
 
-    private static List<AbilityInfoDTO> parseAbilities(String effectConfiguration) {
+    public static List<AbilityInfoDTO> parseAbilities(String effectConfiguration) {
         if (effectConfiguration == null || effectConfiguration.trim().isEmpty()) {
             return Collections.emptyList();
         }

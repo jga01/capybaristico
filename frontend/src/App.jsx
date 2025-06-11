@@ -3,18 +3,13 @@ import { useLoader } from '@react-three/fiber';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import './App.css';
-
 import { useSocket } from './context/SocketContext';
 import { useLobby } from './context/LobbyContext';
 import { useGame } from './context/GameContext';
-
 import GameScreen from './components/GameScreen';
 import { getGameAssetUrls } from './services/assetService';
 import { log } from './services/loggingService';
-
-
 // --- UI Components ---
-
 const PreloadTrigger = ({ onLoaded }) => {
   useLoader(THREE.TextureLoader, getGameAssetUrls());
   useEffect(() => {
@@ -22,7 +17,6 @@ const PreloadTrigger = ({ onLoaded }) => {
   }, [onLoaded]);
   return null;
 };
-
 const LobbyItem = ({ lobby, onJoin, isJoining, currentDisplayName }) => (
   <div style={{ border: '1px solid #444', margin: '8px auto', padding: '10px', background: '#2e2e2e', color: '#eee', borderRadius: '5px', width: '80%', maxWidth: '400px' }}>
     <p>Lobby ID: <span style={{ color: '#7fceff' }}>{lobby.lobbyId.substring(0, 8)}...</span></p>
@@ -37,15 +31,14 @@ const LobbyItem = ({ lobby, onJoin, isJoining, currentDisplayName }) => (
     </button>
   </div>
 );
-
 const LobbyScreen = () => {
   const {
     displayName, setDisplayName,
     lobbyId, openLobbies, error,
     isJoining, waitingMessage,
-    createLobby, joinLobby, refreshLobbies
+    createLobby, joinLobby, refreshLobbies,
+    createAiGame // New function from context
   } = useLobby();
-
   return (
     <div className="App">
       <header className="App-header">
@@ -68,12 +61,15 @@ const LobbyScreen = () => {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
               />
-              <button onClick={createLobby} disabled={!displayName.trim() || isJoining}>
-                Create Lobby
+              <button onClick={createLobby} disabled={!displayName.trim() || isJoining} style={{ marginRight: '10px' }}>
+                Create PvP Lobby
+              </button>
+              <button onClick={createAiGame} disabled={!displayName.trim() || isJoining} style={{ backgroundColor: '#28a745' }}>
+                Play vs. Computer
               </button>
             </div>
             <hr style={{ borderColor: '#444' }} />
-            <h2>Open Lobbies</h2>
+            <h2>Open PvP Lobbies</h2>
             <button onClick={refreshLobbies} disabled={isJoining}>
               Refresh Lobbies
             </button>
@@ -86,7 +82,6 @@ const LobbyScreen = () => {
     </div>
   );
 };
-
 const GameOverScreen = ({ onReturnToLobby }) => {
   const { gameOverMessage } = useGame();
   return (
@@ -99,31 +94,25 @@ const GameOverScreen = ({ onReturnToLobby }) => {
     </div>
   );
 }
-
 // --- Main App Component ---
-
 function App() {
   const { isConnected } = useSocket();
   const { resetLobbyState } = useLobby();
   const { gameId, initialGameState, isGameOver, resetGameState } = useGame();
-
   const [isPreloading, setIsPreloading] = useState(false);
   const [assetsLoaded, setAssetsLoaded] = useState(false);
-
   // Trigger preloading when a game is ready but assets are not yet loaded
   useEffect(() => {
     if (gameId && !assetsLoaded) {
       setIsPreloading(true);
     }
   }, [gameId, assetsLoaded]);
-
   const handleReturnToLobby = () => {
     resetGameState();
     resetLobbyState();
     setAssetsLoaded(false); // Reset for the next game
     setIsPreloading(false);
   };
-
   if (!isConnected) {
     return (
       <div className="App" style={{ color: '#ddd', textAlign: 'center', paddingTop: '50px' }}>
@@ -131,7 +120,6 @@ function App() {
       </div>
     );
   }
-
   if (isPreloading && !assetsLoaded) {
     return (
       <div className="App game-active" style={{ backgroundColor: '#1a1d21' }}>
@@ -150,7 +138,6 @@ function App() {
       </div>
     );
   }
-
   if (gameId && initialGameState && assetsLoaded) {
     if (isGameOver) {
       return <GameOverScreen onReturnToLobby={handleReturnToLobby} />;
@@ -161,8 +148,6 @@ function App() {
       </div>
     );
   }
-
   return <LobbyScreen />;
 }
-
 export default App;

@@ -15,7 +15,6 @@ public class Player {
     private List<CardInstance> hand;
     private List<CardInstance> field;
     private List<CardInstance> discardPile;
-
     public static final int MAX_HAND_SIZE = 5;
     public static final int MAX_FIELD_SIZE = 4;
     public static final int MAX_ATTACKS_PER_TURN = 2;
@@ -55,6 +54,16 @@ public class Player {
         this.field = other.field.stream().map(c -> c != null ? new CardInstance(c) : null)
                 .collect(Collectors.toList());
         this.discardPile = other.discardPile.stream().map(CardInstance::new).collect(Collectors.toList());
+    }
+
+    /**
+     * Method to identify if a player is controlled by AI.
+     * Overridden by the AIPlayer subclass.
+     * 
+     * @return false for a human player.
+     */
+    public boolean isAi() {
+        return false;
     }
 
     // Returns the drawn card, or null if deck is empty
