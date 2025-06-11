@@ -8,10 +8,10 @@
 
     <!-- Appender to log to the console -->
     <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
-        <layout class="ch.qos.logback.classic.PatternLayout">
-            <!-- Added MDC key to the console pattern -->
+        <!-- MODIFIED: layout is now inside an encoder -->
+        <encoder>
             <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{gameId:-SYSTEM}] - %msg%n</Pattern>
-        </layout>
+        </encoder>
     </appender>
 
     <!-- Appender for general application logs (not specific to one game) -->
@@ -20,27 +20,24 @@
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [%X{gameId:-SYSTEM}] - %msg%n</Pattern>
         </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+        <!-- MODIFIED: Simplified rolling policy syntax -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <fileNamePattern>${LOGS}/archived/capycards-global-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
-                <maxFileSize>10MB</maxFileSize>
-            </timeBasedFileNamingAndTriggeringPolicy>
+            <maxFileSize>10MB</maxFileSize>
         </rollingPolicy>
     </appender>
 
     <!-- SiftingAppender to create separate log files for each game match -->
     <appender name="SIFT" class="ch.qos.logback.classic.sift.SiftingAppender">
-        <!-- In the absence of an MDC value, the 'default' is used -->
         <discriminator>
             <key>${MDC_KEY}</key>
             <defaultValue>unknown-game</defaultValue>
         </discriminator>
         <sift>
-            <!-- A new file appender is created for each new gameId -->
             <appender name="FILE-${gameId}" class="ch.qos.logback.core.FileAppender">
-                <!-- Log files will be created in logs/matches/game-ID.log -->
                 <file>${LOGS}/matches/game-${gameId}.log</file>
                 <append>true</append>
+                <!-- MODIFIED: layout is now inside an encoder -->
                 <encoder>
                     <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
                 </encoder>

@@ -1,12 +1,7 @@
-// frontend/src/services/socketService.js
-
 import { io } from 'socket.io-client';
 import { log } from './loggingService';
 
-// The hardcoded URL is removed. The connection will now be established
-// relative to the host that served the web page, which is what we want
-// for the reverse proxy to work correctly.
-const SOCKET_SERVER_URL = 'http://localhost:9092';
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL;
 
 let socket = null;
 
@@ -16,11 +11,12 @@ export const connectSocket = () => {
         return socket;
     }
 
-    // This now connects to the same host that served the page, using a specific path.
-    // On an HTTPS page, this automatically attempts a secure WebSocket (wss://) connection.
-    // This path '/socket.io/' must match the 'location' block in your Nginx config.
     console.log(`Attempting to connect to Socket.IO server at ${SOCKET_SERVER_URL}...`);
-    socket = io(SOCKET_SERVER_URL); // This is the main change
+    // When connecting to a full production URL, you need to specify the path
+    // so the reverse proxy can correctly route the request.
+    socket = io(SOCKET_SERVER_URL, {
+        path: '/socket.io/'
+    });
 
     socket.on('connect', () => {
         const message = 'Socket connected successfully!';
@@ -33,8 +29,6 @@ export const connectSocket = () => {
         console.log(message, reason);
         log(message, { reason });
         socket = null;
-        // The auto-reconnect logic in socket.io-client is usually sufficient.
-        // Manually calling connect() here can lead to loops under some conditions.
     });
 
     socket.on('connect_error', (error) => {
@@ -66,7 +60,7 @@ export const getSocket = () => {
     return socket;
 };
 
-// --- LOBBY ACTIONS ---
+// --- LOBBY ACTIONS (no changes from here down) ---
 export const emitCreateLobby = (data) => {
     const currentSocket = getSocket();
     if (!currentSocket) return;
@@ -157,7 +151,6 @@ export const offJoinLobbyFailed = () => {
 };
 
 // --- GAME STATE & EVENT LISTENERS ---
-// Listener for the initial full game state when a game is ready
 export const onGameReady = (callback) => {
     const currentSocket = getSocket();
     if (currentSocket) {
@@ -172,7 +165,6 @@ export const offGameReady = () => {
     if (currentSocket) currentSocket.off('game_ready');
 };
 
-// Listener for the stream of events during gameplay
 export const onGameEvents = (callback) => {
     const currentSocket = getSocket();
     if (currentSocket) {
@@ -187,13 +179,6 @@ export const offGameEvents = () => {
     if (currentSocket) currentSocket.off('game_events');
 };
 
-
-/**
- * Emits a 'game_command' to the server.
- * @param {object} commandData - The command data, including commandType
- * e.g., { gameId, playerId, commandType: 'PLAY_CARD', handCardIndex, targetFieldSlot }
- * e.g., { gameId, playerId, commandType: 'END_TURN' }
- */
 export const emitGameCommand = (commandData) => {
     const currentSocket = getSocket();
     if (!currentSocket) return;
@@ -206,7 +191,6 @@ export const emitGameCommand = (commandData) => {
     }
 };
 
-// Listener for when the server rejects a command
 export const onCommandRejected = (callback) => {
     const currentSocket = getSocket();
     if (currentSocket) {
