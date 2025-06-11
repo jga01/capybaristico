@@ -260,9 +260,19 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             break;
         }
         case 'CARD_PLAYED': {
-            const player = getPlayer(event.playerId); player.handSize = event.newHandSize;
-            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) player.hand.splice(event.fromHandIndex, 1);
-            player.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.baseAttack, baseDefense: event.card.baseDefense, baseLife: event.card.baseLife, effectFlags: {} };
+            const player = getPlayer(event.playerId);
+            player.handSize = event.newHandSize;
+            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
+                player.hand.splice(event.fromHandIndex, 1);
+            }
+            // FIX: Remove `effectFlags: {}` to preserve flags from the server's DTO.
+            player.field[event.toFieldSlot] = {
+                ...event.card,
+                isExhausted: true,
+                statChanges: {}
+                // The DTO from `event.card` already has the correct base stats and effectFlags.
+                // No need to explicitly set them or overwrite them here.
+            };
             break;
         }
         case 'ATTACK_DECLARED': { const info = findCardInfo(event.attackerInstanceId, draftState); if (info) { info.owner.attacksDeclaredThisTurn += 1; info.card.isExhausted = true; } break; }

@@ -15,30 +15,32 @@ public class BoardEvaluator {
             return 0.0;
         }
 
-        // --- MODIFICATION START: Proactive Win/Loss Condition Check ---
-        // Check if the opponent has any cards on the field. If not, this is a winning
-        // state.
-        boolean opponentHasCards = opponent.getField().stream().anyMatch(Objects::nonNull);
-        if (!opponentHasCards) {
-            // This is a simplification. A more complex check might see if the opponent can
-            // play a card.
-            // For now, an empty field is a strong indicator of a win.
+        // --- MODIFICATION: Check for immediate win/loss conditions ---
+        boolean opponentHasField = opponent.getField().stream().anyMatch(Objects::nonNull);
+        boolean opponentHasHand = opponent.getHand().size() > 0;
+        boolean opponentHasDeck = !opponent.getDeck().isEmpty();
+
+        // If opponent has no cards on field, no cards in hand, and no deck, it's a
+        // guaranteed win.
+        if (!opponentHasField && !opponentHasHand && !opponentHasDeck) {
             return Double.MAX_VALUE;
         }
 
-        // Check if the AI has no cards on the field. This is a losing state.
-        boolean aiHasCards = aiPlayer.getField().stream().anyMatch(Objects::nonNull);
-        if (!aiHasCards) {
-            return Double.MIN_VALUE;
+        boolean aiHasField = aiPlayer.getField().stream().anyMatch(Objects::nonNull);
+        // If AI has no cards and no way to play any, it's a loss.
+        if (!aiHasField && aiPlayer.getHand().isEmpty()) {
+            return -Double.MAX_VALUE;
         }
-        // --- MODIFICATION END ---
 
-        // The evaluation is the difference between the AI's board score and the
-        // opponent's.
         double aiScore = calculatePlayerScore(aiPlayer);
         double opponentScore = calculatePlayerScore(opponent);
 
-        return aiScore - opponentScore;
+        // --- MODIFICATION: Add bonus for having more board control ---
+        // Having more cards than the opponent is a significant advantage.
+        long cardAdvantage = aiPlayer.getField().stream().filter(Objects::nonNull).count() -
+                opponent.getField().stream().filter(Objects::nonNull).count();
+
+        return (aiScore - opponentScore) + (cardAdvantage * 10.0);
     }
 
     private static double calculatePlayerScore(Player player) {
@@ -47,14 +49,21 @@ public class BoardEvaluator {
         // Score for cards on the field
         for (CardInstance card : player.getField()) {
             if (card != null) {
-                // Life is the most important base stat for board presence.
-                score += card.getCurrentLife();
-                // Attack is weighted more heavily than defense as it represents threat.
-                score += card.getCurrentAttack() * 1.5;
-                // Defense contributes to survivability.
-                score += card.getCurrentDefense();
+                // MODIFICATION: Weighting changed to be more aggressive.
+                // Life is valuable, but threat (Attack) is more so.
+                score += card.getCurrentLife() * 1.2;
+                score += card.getCurrentAttack() * 1.8; // Attack is a higher priority.
+                score += card.getCurrentDefense() * 0.8; // Defense is less important than life.
 
-                // A small bonus for cards that can still act this turn.
+                // Bonus for having special abilities or positive flags
+                if (card.getDefinition().getEffectConfiguration() != null
+                        && !card.getDefinition().getEffectConfiguration().isBlank()) {
+                    score += 3;
+                }
+                if (!card.getAllEffectFlags().isEmpty()) {
+                    score += 2;
+                }
+
                 if (!card.isExhausted()) {
                     score += 2;
                 }
@@ -62,7 +71,6 @@ public class BoardEvaluator {
         }
 
         // Score for cards in hand (represents future potential).
-        // Each card in hand is worth a bit, as it's a future option.
         score += player.getHand().size() * 3.0;
 
         // A significant penalty for having an empty deck, representing fatigue risk.
