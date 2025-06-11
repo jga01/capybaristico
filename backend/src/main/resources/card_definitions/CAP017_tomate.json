@@ -5,7 +5,7 @@
     "initialLife": 5,
     "attack": 1,
     "defense": 5,
-    "effectText": "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3. After 4 turns, duplicates a card.",
+    "effectText": "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3. After 4 turns, duplicates a card from your deck into your deck.",
     "rarity": "LEGENDARY",
     "imageUrl": "tomate.png",
     "flavorText": "The late game surprise.",
@@ -13,12 +13,33 @@
     "effectConfiguration": [
         {
             "trigger": "ON_PLAY",
-            "action": "BUFF_STAT",
+            "action": "CHAINED_EFFECTS",
             "params": {
-                "targets": "SELF",
-                "stat": "DEF",
-                "amount": 5,
-                "isPermanent": true
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "ALL_FRIENDLY_CARDS_IN_DECK",
+                            "stat": "DEF",
+                            "amount": 5,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "SCHEDULE_ACTION",
+                        "params": {
+                            "delayInTurns": 4,
+                            "targets": "SELF",
+                            "scheduledEffect": {
+                                "action": "DUPLICATE_CARD_IN_DECK",
+                                "params": {
+                                    "targets": "RANDOM_FRIENDLY_CARD_IN_DECK",
+                                    "placement": "SHUFFLE"
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         }
     ]

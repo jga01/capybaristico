@@ -26,7 +26,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
         @JsonSubTypes.Type(value = PlayerDrewCardEvent.class, name = "PLAYER_DREW_CARD"),
         @JsonSubTypes.Type(value = CardVanishedEvent.class, name = "CARD_VANISHED"),
         @JsonSubTypes.Type(value = CardReappearedEvent.class, name = "CARD_REAPPEARED"),
-        @JsonSubTypes.Type(value = CardStatSetEvent.class, name = "CARD_STAT_SET")
+        @JsonSubTypes.Type(value = CardStatSetEvent.class, name = "CARD_STAT_SET"),
+        @JsonSubTypes.Type(value = CardAddedToDeckEvent.class, name = "CARD_ADDED_TO_DECK")
 })
 public abstract class GameEvent {
     public final long timestamp;

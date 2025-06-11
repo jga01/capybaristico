@@ -1,6 +1,7 @@
 package com.jamestiago.capycards.game;
 
 import com.jamestiago.capycards.model.Card;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -9,12 +10,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CardInstance {
-    private final String instanceId;
+    private String instanceId;
     private final Card cardDefinition;
     // Base stats from definition
     int baseLife;
     int baseAttack;
     int baseDefense;
+
     // Current dynamic state
     private int currentLife;
     private boolean isExhausted;
@@ -41,6 +43,16 @@ public class CardInstance {
         // Initialize current stats
         this.currentLife = this.baseLife;
         this.isExhausted = true; // Default to exhausted on creation
+    }
+
+    /**
+     * Package-private setter to allow Game state hydration from events.
+     * This is used when a new card is created by an effect.
+     * 
+     * @param instanceId The instanceId from the event.
+     */
+    void setInstanceId(String instanceId) {
+        this.instanceId = instanceId;
     }
 
     public void addScheduledAction(int onTurnNumber, Map<String, Object> effectConfig) {

@@ -292,6 +292,7 @@ public class EffectProcessor {
                 case APPLY_AURA_BUFF -> handleApplyAuraBuff(game, params, source, owner, context);
                 case CHAINED_EFFECTS -> handleChainedEffects(game, params, source, owner, context);
                 case CHOOSE_RANDOM_EFFECT -> handleChooseRandomEffect(game, params, source, owner, context);
+                case DUPLICATE_CARD_IN_DECK -> handleDuplicateCardInDeck(game, params, source, owner, context);
                 case MODIFY_INCOMING_DAMAGE, MODIFY_OUTGOING_DAMAGE -> List.of(); // Handled elsewhere
                 default -> {
                     logger.warn("Unhandled action type in EffectProcessor: {}", actionName);
@@ -302,6 +303,32 @@ public class EffectProcessor {
             logger.error("Invalid action name in JSON config: {}", actionName);
             return List.of();
         }
+    }
+
+    private List<GameEvent> handleDuplicateCardInDeck(Game game, Map<String, Object> params, CardInstance source,
+            Player owner, Map<String, Object> context) {
+        List<GameEvent> events = new ArrayList<>();
+        List<CardInstance> targets = TargetResolver.resolveCardTargets((String) params.get("targets"), source, owner,
+                context, game);
+
+        if (targets.isEmpty()) {
+            logger.warn("DUPLICATE_CARD_IN_DECK action found no targets to duplicate.");
+            return events;
+        }
+
+        CardInstance cardToDuplicate = targets.get(0);
+        CardInstance newCardInstance = new CardInstance(cardToDuplicate.getDefinition());
+        String placement = (String) params.getOrDefault("placement", "SHUFFLE");
+
+        CardAddedToDeckEvent event = new CardAddedToDeckEvent(
+                game.getGameId(),
+                game.getTurnNumber(),
+                owner.getPlayerId(),
+                GameStateMapper.mapCardInstanceToDTO(newCardInstance),
+                owner.getDeck().size() + 1,
+                placement);
+        events.add(event);
+        return events;
     }
 
     @SuppressWarnings("unchecked")

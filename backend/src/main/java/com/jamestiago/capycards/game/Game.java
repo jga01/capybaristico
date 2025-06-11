@@ -4,7 +4,6 @@ import com.jamestiago.capycards.model.Card;
 import com.jamestiago.capycards.game.events.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +22,6 @@ public class Game {
     private int turnNumber;
     private final Map<String, Object> gameFlags = new ConcurrentHashMap<>();
     private transient final Map<String, Card> allCardDefinitions;
-
     // A card in limbo now stores its owner's ID
     private final Map<String, Map.Entry<CardInstance, String>> cardsInLimbo = new ConcurrentHashMap<>();
 
@@ -147,7 +145,8 @@ public class Game {
         } else if (event instanceof GameOverEvent e) {
             applyGameOver(e);
         } else if (event instanceof CardStatsChangedEvent e) {
-            applyCardStatsChanged(e);
+            // This event is now informational for the client, it doesn't change server
+            // state.
         } else if (event instanceof CardHealedEvent e) {
             applyCardHealed(e);
         } else if (event instanceof CardBuffedEvent e) {
@@ -164,6 +163,8 @@ public class Game {
             applyCardVanished(e);
         } else if (event instanceof CardReappearedEvent e) {
             applyCardReappeared(e);
+        } else if (event instanceof CardAddedToDeckEvent e) {
+            applyCardAddedToDeck(e);
         }
         updateInternalGameState();
         logger.trace("[{}] FINISHED applying event: {}. Current turn: {}, Current player: {}, Game state: {}", gameId,
@@ -252,17 +253,8 @@ public class Game {
         }
     }
 
-    private void applyCardStatsChanged(CardStatsChangedEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
-        if (card != null) {
-            card.setBaseAttack(event.newAttack);
-            card.setBaseDefense(event.newDefense);
-            card.setCurrentLife(event.newLife);
-        }
-    }
-
     private void applyCardHealed(CardHealedEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        CardInstance card = findCardInstanceAnywhere(event.targetInstanceId);
         if (card != null) {
             card.setCurrentLife(event.lifeAfter);
         }
@@ -296,7 +288,7 @@ public class Game {
     }
 
     private void applyCardBuffed(CardBuffedEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        CardInstance card = findCardInstanceAnywhere(event.targetInstanceId);
         if (card == null)
             return;
 
@@ -315,7 +307,7 @@ public class Game {
     }
 
     private void applyCardDebuffed(CardDebuffedEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        CardInstance card = findCardInstanceAnywhere(event.targetInstanceId);
         if (card == null)
             return;
         int negativeAmount = -Math.abs(event.amount);
@@ -331,7 +323,7 @@ public class Game {
     }
 
     private void applyCardStatSet(CardStatSetEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        CardInstance card = findCardInstanceAnywhere(event.targetInstanceId);
         if (card == null)
             return;
         switch (event.stat.toUpperCase()) {
@@ -343,7 +335,7 @@ public class Game {
     }
 
     private void applyCardFlagChanged(CardFlagChangedEvent event) {
-        CardInstance card = findCardInstanceFromAnyField(event.targetInstanceId);
+        CardInstance card = findCardInstanceAnywhere(event.targetInstanceId);
         if (card != null) {
             if (event.value == null) {
                 card.removeEffectFlag(event.flagName);
@@ -391,6 +383,32 @@ public class Game {
         }
     }
 
+    private void applyCardAddedToDeck(CardAddedToDeckEvent event) {
+        Player p = getPlayerById(event.playerId);
+        if (p == null || event.card == null) {
+            return;
+        }
+        Card definition = allCardDefinitions.get(event.card.getCardId());
+        if (definition != null) {
+            CardInstance newCard = new CardInstance(definition);
+            newCard.setInstanceId(event.card.getInstanceId()); // Ensure consistent ID
+
+            switch (event.placement.toUpperCase()) {
+                case "TOP":
+                    p.getDeck().addCardToTop(newCard);
+                    break;
+                case "BOTTOM":
+                    p.getDeck().addCardToBottom(newCard);
+                    break;
+                case "SHUFFLE":
+                default:
+                    p.getDeck().addCardToBottom(newCard);
+                    p.getDeck().shuffle();
+                    break;
+            }
+        }
+    }
+
     private void updateInternalGameState() {
         if (this.gameState.name().contains("GAME_OVER"))
             return;
@@ -414,6 +432,30 @@ public class Game {
                     if (card != null && card.getInstanceId().equals(instanceId)) {
                         return card;
                     }
+                }
+            }
+        }
+        return null;
+    }
+
+    public CardInstance findCardInstanceAnywhere(String instanceId) {
+        if (instanceId == null)
+            return null;
+        // Check fields first
+        CardInstance card = findCardInstanceFromAnyField(instanceId);
+        if (card != null)
+            return card;
+
+        // Check all players' hands and decks
+        for (Player p : List.of(player1, player2)) {
+            if (p != null) {
+                for (CardInstance c : p.getHandInternal()) {
+                    if (c != null && c.getInstanceId().equals(instanceId))
+                        return c;
+                }
+                for (CardInstance c : p.getDeck().getCards()) {
+                    if (c != null && c.getInstanceId().equals(instanceId))
+                        return c;
                 }
             }
         }
