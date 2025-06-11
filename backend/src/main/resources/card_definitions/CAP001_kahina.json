@@ -1,0 +1,89 @@
+{
+    "cardId": "CAP001",
+    "name": "Kahina",
+    "type": "Indigenous",
+    "initialLife": 24,
+    "attack": 4,
+    "defense": 2,
+    "effectText": "Heals +1 life whenever another card is damaged. At 50 life, ATK becomes 50, but killing any card causes her to die. Dies instantly if she damages a Capybara.",
+    "rarity": "SUPER_RARE",
+    "imageUrl": "kahina.png",
+    "flavorText": "The earth remembers.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DAMAGE_TAKEN_OF_ANY",
+            "condition": {
+                "type": "TRIGGER_SOURCE_IS_SELF",
+                "params": {}
+            },
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "SELF",
+                "amount": 1
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "Capybara"
+                }
+            },
+            "action": "DESTROY_CARD",
+            "params": {
+                "targets": "SELF"
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "STAT",
+                        "statName": "LIFE",
+                        "cardContext": "SELF"
+                    },
+                    "operator": "GREATER_THAN",
+                    "targetValue": 49
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "ATK",
+                        "amount": 50
+                    }
+                ],
+                "flags": {
+                    "kahina_frenzy_AURA": true
+                }
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "ALL_OF",
+                "conditions": [
+                    {
+                        "type": "SELF_HAS_FLAG",
+                        "params": {
+                            "flagName": "kahina_frenzy_AURA"
+                        }
+                    },
+                    {
+                        "type": "TARGET_IS_DESTROYED"
+                    }
+                ]
+            },
+            "action": "DESTROY_CARD",
+            "params": {
+                "targets": "SELF"
+            }
+        }
+    ]
+}

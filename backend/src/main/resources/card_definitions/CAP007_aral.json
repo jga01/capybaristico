@@ -1,0 +1,29 @@
+{
+    "cardId": "CAP007",
+    "name": "Aral",
+    "type": "Capybara",
+    "initialLife": 9,
+    "attack": 5,
+    "defense": 3,
+    "effectText": "Does not get hit by Undead.",
+    "rarity": "COMMON",
+    "imageUrl": "aral.png",
+    "flavorText": "Chill and unbothered.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "Undead"
+                }
+            },
+            "params": {
+                "amount": 0,
+                "mode": "SET_ABSOLUTE"
+            }
+        }
+    ]
+}

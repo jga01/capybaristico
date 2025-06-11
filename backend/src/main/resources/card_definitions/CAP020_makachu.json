@@ -1,0 +1,81 @@
+{
+    "cardId": "CAP020",
+    "name": "Makachu",
+    "type": "Capybara,Undead",
+    "initialLife": 10,
+    "attack": 2,
+    "defense": 1,
+    "effectText": "Gains +1 ATK if Menino is in play. Dies instantly if Menino attacks it. Can flip to 'Makachuva': once per game Rain = -2 damage to all non-Capybaras.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "makachu.png",
+    "flavorText": "Pika-bara?",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP011"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_DEFEND",
+            "condition": {
+                "type": "SOURCE_HAS_CARD_ID",
+                "params": {
+                    "cardId": "CAP011"
+                }
+            },
+            "action": "DESTROY_CARD",
+            "params": {
+                "targets": "SELF"
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Rain",
+            "description": "Deal 2 damage to all non-Capybara cards on the field. (Once per game)",
+            "requiresTarget": "NONE",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "makachu_rain_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "ALL_NON_CAPYBARA_CARDS_ON_FIELD",
+                            "amount": 2
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "makachu_rain_used",
+                            "value": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,39 @@
+{
+    "cardId": "CAP012",
+    "name": "Crazysoup",
+    "type": "European",
+    "initialLife": 8,
+    "attack": 6,
+    "defense": 0,
+    "effectText": "50/50 before attack: Heads = double damage; Tails = self-damage. If Floppy is on field, can redirect damage to him.",
+    "rarity": "RARE",
+    "imageUrl": "crazysoup.png",
+    "flavorText": "What's in this stuff?!",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_ATTACK_DECLARE",
+            "action": "CHOOSE_RANDOM_EFFECT",
+            "params": {
+                "choices": [
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "double_damage_this_attack",
+                            "value": true,
+                            "duration": "TURN"
+                        }
+                    },
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": 6
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

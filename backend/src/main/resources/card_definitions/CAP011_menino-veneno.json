@@ -1,0 +1,69 @@
+{
+    "cardId": "CAP011",
+    "name": "Menino-Veneno",
+    "type": "Capybara",
+    "initialLife": 9,
+    "attack": 5,
+    "defense": 5,
+    "effectText": "Can’t attack unless Caioba is in play. If attacked while Caioba is NOT in play, dies instantly. With Caioba, gets double DEF.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "menino_veneno.png",
+    "flavorText": "Small but fierce... with friends.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEFEND",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP016",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "DESTROY_CARD",
+            "params": {
+                "targets": "SELF"
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP016"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "DEF",
+                        "amount": {
+                            "source": "STAT",
+                            "statName": "BASE_DEF",
+                            "cardContext": "SELF"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP016",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "flags": {
+                    "status_cannot_attack_AURA": true
+                }
+            }
+        }
+    ]
+}

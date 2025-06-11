@@ -1,0 +1,76 @@
+{
+    "cardId": "CAP022",
+    "name": "Apolo",
+    "type": "Undead",
+    "initialLife": 8,
+    "attack": 0,
+    "defense": 0,
+    "effectText": "Ignores enemy DEF. When hit: flip coin. Heads = heal +3, tails = gain +3 ATK. Max 4 triggers.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "apolo.png",
+    "flavorText": "Ghostly strikes.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "flags": {
+                    "ignores_defense_AURA": true
+                }
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_TAKEN",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "FLAG_VALUE",
+                        "flagName": "apolo_triggers",
+                        "cardContext": "SELF"
+                    },
+                    "operator": "LESS_THAN",
+                    "targetValue": 4
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "MODIFY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "apolo_triggers",
+                            "mode": "INCREMENT"
+                        }
+                    },
+                    {
+                        "action": "CHOOSE_RANDOM_EFFECT",
+                        "params": {
+                            "choices": [
+                                {
+                                    "action": "HEAL_TARGET",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "amount": 3
+                                    }
+                                },
+                                {
+                                    "action": "BUFF_STAT",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "stat": "ATK",
+                                        "amount": 3,
+                                        "isPermanent": true
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

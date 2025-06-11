@@ -1,0 +1,99 @@
+{
+    "cardId": "CAP005",
+    "name": "Swettie",
+    "type": "European",
+    "initialLife": 18,
+    "attack": 3,
+    "defense": 3,
+    "effectText": "Has two sides. Killing one doesn’t kill the other. Can use 'Scottish Von' once: revives the other side instead of attacking, but loses half her life.",
+    "rarity": "SUPER_RARE",
+    "imageUrl": "swettie.png",
+    "flavorText": "Two faces of fortitude.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEATH",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "swettie_side_b_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "HEAL_TARGET",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": 999
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "swettie_side_b_used",
+                            "value": true
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Scottish Von",
+            "description": "Lose half your current life to restore your other side. (Once per game)",
+            "requiresTarget": "NONE",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "scottish_von_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": {
+                                "source": "STAT",
+                                "statName": "LIFE",
+                                "cardContext": "SELF",
+                                "multiplier": 0.5
+                            }
+                        }
+                    },
+                    {
+                        "action": "HEAL_TARGET",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": 999
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "swettie_side_b_used",
+                            "value": true
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "scottish_von_used",
+                            "value": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

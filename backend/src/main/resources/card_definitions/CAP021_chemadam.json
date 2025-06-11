@@ -1,0 +1,64 @@
+{
+    "cardId": "CAP021",
+    "name": "Chemadam",
+    "type": "European,Undead",
+    "initialLife": 11,
+    "attack": 2,
+    "defense": 0,
+    "effectText": "Each turn 50%: +5 to enemy or -3 to self. If Floppy is in play, copies his skill at 50%. If dies to own effect: 50% chance to become Floppy or Crazysoup.",
+    "rarity": "SUPER_RARE",
+    "imageUrl": "chemadam.png",
+    "flavorText": "Unpredictable concoction.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "START_OF_TURN_SELF",
+            "action": "CHOOSE_RANDOM_EFFECT",
+            "params": {
+                "choices": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "ALL_ENEMY_CARDS_ON_FIELD",
+                            "stat": "ATK",
+                            "amount": 5,
+                            "isPermanent": false
+                        }
+                    },
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": 3
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_DEATH",
+            "condition": {
+                "type": "TRIGGER_SOURCE_IS_SELF"
+            },
+            "action": "CHOOSE_RANDOM_EFFECT",
+            "params": {
+                "choices": [
+                    {
+                        "action": "TRANSFORM_CARD",
+                        "params": {
+                            "targets": "SELF",
+                            "newCardId": "CAP004"
+                        }
+                    },
+                    {
+                        "action": "TRANSFORM_CARD",
+                        "params": {
+                            "targets": "SELF",
+                            "newCardId": "CAP012"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

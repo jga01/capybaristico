@@ -1,0 +1,71 @@
+{
+    "cardId": "CAP027",
+    "name": "GGaego",
+    "type": "Undead,European",
+    "initialLife": 1,
+    "attack": 9,
+    "defense": 0,
+    "effectText": "Once per turn: reduce -2 DEF of any card (min 0), OR give +2 ATK to friendly and +1 ATK to enemy. Can heal self +3 instead of attacking.",
+    "rarity": "RARE",
+    "imageUrl": "ggaego.png",
+    "flavorText": "A chaotic force.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Weaken Armor",
+            "description": "Select a card to permanently reduce its DEF by 2.",
+            "requiresTarget": "ANY_FIELD_CARD",
+            "action": "DEBUFF_STAT",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "stat": "DEF",
+                "amount": 2,
+                "isPermanent": true
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 1,
+            "name": "War Cry",
+            "description": "Give all your cards +2 ATK and all enemy cards +1 ATK for this turn.",
+            "requiresTarget": "NONE",
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "ALL_FRIENDLY_CARDS_ON_FIELD",
+                            "stat": "ATK",
+                            "amount": 2,
+                            "isPermanent": false
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "ALL_ENEMY_CARDS_ON_FIELD",
+                            "stat": "ATK",
+                            "amount": 1,
+                            "isPermanent": false
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 2,
+            "name": "Drink Vigor",
+            "description": "GGaego heals itself for 3 LIFE.",
+            "requiresTarget": "NONE",
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "SELF",
+                "amount": 3
+            }
+        }
+    ]
+}

@@ -1,0 +1,47 @@
+{
+    "cardId": "CAP030",
+    "name": "Andgames",
+    "type": "Capybara",
+    "initialLife": 7,
+    "attack": 8,
+    "defense": 0,
+    "effectText": "If Kizer is in same field: +3 LIFE and +2 ATK (once).",
+    "rarity": "UNCOMMON",
+    "imageUrl": "andgames.png",
+    "flavorText": "Stronger together.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_PLAY",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP024"
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "amount": 3,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "amount": 2,
+                            "isPermanent": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

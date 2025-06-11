@@ -1,0 +1,37 @@
+{
+    "cardId": "CAP026",
+    "name": "Famousbuilder",
+    "type": "European",
+    "initialLife": 8,
+    "attack": 2,
+    "defense": 2,
+    "effectText": "“Pretentious Interference”: When Famousbuilder enters the field, choose one: (a) Reduce 1 enemy card’s DEF to 0 until end of opponent’s next turn, or (b) prevent one enemy from using its effect this turn. Cannot attack if there is another European card in your field.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "famous.png",
+    "flavorText": "Master of obstruction.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "DYNAMIC_COUNT",
+                        "countType": "FRIENDLY_CARDS_WITH_TYPE",
+                        "typeName": "European"
+                    },
+                    "operator": "GREATER_THAN",
+                    "targetValue": 0
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "flags": {
+                    "status_cannot_attack_AURA": true
+                }
+            }
+        }
+    ]
+}

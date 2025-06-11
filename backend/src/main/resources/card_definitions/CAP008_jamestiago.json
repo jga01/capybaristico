@@ -1,0 +1,89 @@
+{
+    "cardId": "CAP008",
+    "name": "Jamestiago",
+    "type": "Indigenous",
+    "initialLife": 10,
+    "attack": 3,
+    "defense": 1,
+    "effectText": "With Menino-Veneno: +5 LIFE & +1 ATK. If hit by Indigenous/European, heals +1. With Totem: +10 LIFE & +1 ATK.",
+    "rarity": "RARE",
+    "imageUrl": "jamestiago.png",
+    "flavorText": "The storyteller.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DAMAGE_TAKEN",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "European"
+                }
+            },
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "SELF",
+                "amount": 1
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_TAKEN",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "Indigenous"
+                }
+            },
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "SELF",
+                "amount": 1
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP011"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "MAX_LIFE",
+                        "amount": 5
+                    },
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP009"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "MAX_LIFE",
+                        "amount": 10
+                    },
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        }
+    ]
+}

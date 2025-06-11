@@ -1,0 +1,85 @@
+{
+    "cardId": "CAP015",
+    "name": "PH",
+    "type": "Capybara",
+    "initialLife": 10,
+    "attack": 1,
+    "defense": 0,
+    "effectText": "If Jamestiago or Menino-Veneno are in play, heals them +1 instead of attacking. If Olivio is on the field, PH gains +15 LIFE & +5 ATK, but Olivio dies.",
+    "rarity": "RARE",
+    "imageUrl": "ph.png",
+    "flavorText": "A noble sacrifice.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_PLAY",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP019"
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "DESTROY_CARD",
+                        "params": {
+                            "targets": "FRIENDLY_CARD_WITH_ID",
+                            "context": {
+                                "cardId": "CAP019"
+                            }
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "amount": 15,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "amount": 5,
+                            "isPermanent": true
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Heal Ally +1",
+            "description": "Heal a friendly Jamestiago or Menino-Veneno for 1 life instead of attacking.",
+            "requiresTarget": "OWN_FIELD_CARD",
+            "condition": {
+                "type": "ANY_OF",
+                "conditions": [
+                    {
+                        "type": "TARGET_HAS_TYPE",
+                        "params": {
+                            "typeName": "Jamestiago"
+                        }
+                    },
+                    {
+                        "type": "TARGET_HAS_TYPE",
+                        "params": {
+                            "typeName": "Menino-Veneno"
+                        }
+                    }
+                ]
+            },
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "amount": 1
+            }
+        }
+    ]
+}

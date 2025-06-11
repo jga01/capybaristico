@@ -28,10 +28,12 @@ public class Card {
     @Column(nullable = false)
     private Integer defense;
 
-    @Lob // For potentially large text fields
+    // MODIFIED: Replaced @Lob with a more specific column definition for PostgreSQL
+    // compatibility.
     @Column(name = "effect_text", columnDefinition = "TEXT")
     private String effectText;
 
+    // MODIFIED: Replaced @Lob with a more specific column definition.
     @Column(name = "effect_configuration", columnDefinition = "TEXT")
     private String effectConfiguration;
 
@@ -42,7 +44,7 @@ public class Card {
     @Column(name = "image_url")
     private String imageUrl;
 
-    @Lob
+    // MODIFIED: Replaced @Lob with a more specific column definition.
     @Column(name = "flavor_text", columnDefinition = "TEXT")
     private String flavorText;
 

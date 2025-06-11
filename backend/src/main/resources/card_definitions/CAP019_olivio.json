@@ -1,0 +1,104 @@
+{
+    "cardId": "CAP019",
+    "name": "Olivio",
+    "type": "Capybara",
+    "initialLife": 20,
+    "attack": 3,
+    "defense": 6,
+    "effectText": "Gains +5 LIFE and +2 ATK when another Capybara dies. If PH is in play, Olivio dies instantly and PH gains +15 LIFE and +5 ATK. If Kahina is on field, she dies on turn 3. Once per game: deal 3 damage to all non-Capybara cards.",
+    "rarity": "RARE",
+    "imageUrl": "olivio.png",
+    "flavorText": "The Capybara King.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEATH_OF_ANY",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "Capybara"
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "amount": 5,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "amount": 2,
+                            "isPermanent": true
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_PLAY",
+            "condition": {
+                "type": "ENEMY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP001"
+                }
+            },
+            "action": "SCHEDULE_ACTION",
+            "params": {
+                "delayInTurns": 3,
+                "targets": "ENEMY_CARD_WITH_ID",
+                "context": {
+                    "cardId": "CAP001"
+                },
+                "scheduledEffect": {
+                    "action": "DESTROY_CARD",
+                    "params": {
+                        "targets": "SELF"
+                    }
+                }
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Capybara Wrath",
+            "description": "Deal 3 damage to all non-Capybara cards. (Once per game)",
+            "requiresTarget": "NONE",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "olivio_wrath_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "ALL_NON_CAPYBARA_CARDS_ON_FIELD",
+                            "amount": 3
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "olivio_wrath_used",
+                            "value": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

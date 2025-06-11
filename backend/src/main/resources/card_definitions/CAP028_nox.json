@@ -1,0 +1,60 @@
+{
+    "cardId": "CAP028",
+    "name": "Nox",
+    "type": "Capybara,European",
+    "initialLife": 1,
+    "attack": 8,
+    "defense": 0,
+    "effectText": "All cards in same field gain +1 ATK while alive. Can mark others with 'scargot' (must have it to attack). Can use 'wine' to self-heal +3 next turn.",
+    "rarity": "RARE",
+    "imageUrl": "nox.png",
+    "flavorText": "The sophisticated strategist.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Mark with Scargot",
+            "description": "Mark a card. Marked cards can be attacked.",
+            "requiresTarget": "ANY_FIELD_CARD",
+            "action": "APPLY_FLAG",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "flagName": "scargot_mark",
+                "value": true,
+                "duration": "PERMANENT"
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 1,
+            "name": "Sip Wine",
+            "description": "Heal self for 3 LIFE at the start of your next turn.",
+            "requiresTarget": "NONE",
+            "action": "SCHEDULE_ACTION",
+            "params": {
+                "delayInTurns": 1,
+                "scheduledEffect": {
+                    "action": "HEAL_TARGET",
+                    "params": {
+                        "targets": "SELF",
+                        "amount": 3
+                    }
+                }
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "ALL_FRIENDLY_CARDS_ON_FIELD",
+                "buffs": [
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        }
+    ]
+}

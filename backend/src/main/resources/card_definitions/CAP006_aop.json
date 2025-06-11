@@ -1,0 +1,120 @@
+{
+    "cardId": "CAP006",
+    "name": "Aop",
+    "type": "American,Capybara",
+    "initialLife": 1,
+    "attack": 1,
+    "defense": 1,
+    "effectText": "Immune to attacks over 7 damage. Can roll a die each turn instead of attacking: roll 1 or 6 = +4 DEF, +1 ATK.",
+    "rarity": "COMMON",
+    "imageUrl": "aop.png",
+    "flavorText": "Surprisingly resilient.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "EVENT_DATA",
+                        "key": "damageAmount"
+                    },
+                    "operator": "GREATER_THAN",
+                    "targetValue": 7
+                }
+            },
+            "params": {
+                "amount": 0,
+                "mode": "SET_ABSOLUTE"
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Roll a Die",
+            "description": "Roll a six-sided die. On a 1 or 6, Aop gains +1 ATK and +4 DEF for the turn.",
+            "requiresTarget": "NONE",
+            "action": "CHOOSE_RANDOM_EFFECT",
+            "params": {
+                "choices": [
+                    {
+                        "action": "CHAINED_EFFECTS",
+                        "params": {
+                            "effects": [
+                                {
+                                    "action": "BUFF_STAT",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "stat": "DEF",
+                                        "amount": 4,
+                                        "isPermanent": false
+                                    }
+                                },
+                                {
+                                    "action": "BUFF_STAT",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "stat": "ATK",
+                                        "amount": 1,
+                                        "isPermanent": false
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "action": "GAME_LOG_MESSAGE",
+                        "params": {
+                            "message": "Aop rolls the die... nothing happens."
+                        }
+                    },
+                    {
+                        "action": "GAME_LOG_MESSAGE",
+                        "params": {
+                            "message": "Aop rolls the die... nothing happens."
+                        }
+                    },
+                    {
+                        "action": "GAME_LOG_MESSAGE",
+                        "params": {
+                            "message": "Aop rolls the die... nothing happens."
+                        }
+                    },
+                    {
+                        "action": "GAME_LOG_MESSAGE",
+                        "params": {
+                            "message": "Aop rolls the die... nothing happens."
+                        }
+                    },
+                    {
+                        "action": "CHAINED_EFFECTS",
+                        "params": {
+                            "effects": [
+                                {
+                                    "action": "BUFF_STAT",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "stat": "DEF",
+                                        "amount": 4,
+                                        "isPermanent": false
+                                    }
+                                },
+                                {
+                                    "action": "BUFF_STAT",
+                                    "params": {
+                                        "targets": "SELF",
+                                        "stat": "ATK",
+                                        "amount": 1,
+                                        "isPermanent": false
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

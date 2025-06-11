@@ -1,0 +1,114 @@
+{
+    "cardId": "CAP013",
+    "name": "AppleofEcho",
+    "type": "Undead",
+    "initialLife": 1,
+    "attack": 1,
+    "defense": 15,
+    "effectText": "Cannot be targeted unless all other cards are dead. After 5 turns, vanishes and returns 3 turns later with double ATK. Ignores DEF vs Capybaras.",
+    "rarity": "RARE",
+    "imageUrl": "appleofecho.png",
+    "flavorText": "Now you see me...",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "DYNAMIC_COUNT",
+                        "countType": "OTHER_FRIENDLY_CARDS"
+                    },
+                    "operator": "GREATER_THAN",
+                    "targetValue": 0
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "flags": {
+                    "status_cannot_be_targeted_AURA": true
+                }
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "Capybara"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "flags": {
+                    "ignores_defense_AURA": true
+                }
+            }
+        },
+        {
+            "trigger": "START_OF_TURN_SELF",
+            "action": "MODIFY_FLAG",
+            "params": {
+                "targets": "SELF",
+                "flagName": "turnsOnField",
+                "mode": "INCREMENT"
+            }
+        },
+        {
+            "trigger": "START_OF_TURN_SELF",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "FLAG_VALUE",
+                        "flagName": "turnsOnField",
+                        "cardContext": "SELF"
+                    },
+                    "operator": "EQUALS",
+                    "targetValue": 5
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "VANISH",
+                        "params": {}
+                    },
+                    {
+                        "action": "SCHEDULE_ACTION",
+                        "params": {
+                            "delayInTurns": 3,
+                            "scheduledEffect": {
+                                "action": "CHAINED_EFFECTS",
+                                "params": {
+                                    "effects": [
+                                        {
+                                            "action": "REAPPEAR"
+                                        },
+                                        {
+                                            "action": "BUFF_STAT",
+                                            "params": {
+                                                "targets": "SELF",
+                                                "stat": "ATK",
+                                                "amount": {
+                                                    "source": "STAT",
+                                                    "statName": "BASE_ATK",
+                                                    "cardContext": "SELF"
+                                                },
+                                                "isPermanent": true
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

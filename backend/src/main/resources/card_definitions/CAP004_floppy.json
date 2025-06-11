@@ -1,0 +1,119 @@
+{
+    "cardId": "CAP004",
+    "name": "Floppy",
+    "type": "European",
+    "initialLife": 1,
+    "attack": 12,
+    "defense": 0,
+    "effectText": "If he kills a card, can attack again (except against European/Capybara). If he kills 2 in a row, gains +4 DEF, +8 LIFE, ATK drops to 8.",
+    "rarity": "RARE",
+    "imageUrl": "floppy.png",
+    "flavorText": "A whirlwind of... something.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "ALL_OF",
+                "conditions": [
+                    {
+                        "type": "TARGET_IS_DESTROYED"
+                    },
+                    {
+                        "type": "TARGET_HAS_TYPE",
+                        "params": {
+                            "typeName": "European",
+                            "mustBeAbsent": true
+                        }
+                    },
+                    {
+                        "type": "TARGET_HAS_TYPE",
+                        "params": {
+                            "typeName": "Capybara",
+                            "mustBeAbsent": true
+                        }
+                    }
+                ]
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "canAttackAgainThisTurn",
+                            "value": true,
+                            "duration": "TURN"
+                        }
+                    },
+                    {
+                        "action": "MODIFY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "killStreakThisTurn",
+                            "mode": "INCREMENT",
+                            "amount": 1
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "VALUE_COMPARISON",
+                "params": {
+                    "sourceValue": {
+                        "source": "FLAG_VALUE",
+                        "flagName": "killStreakThisTurn",
+                        "cardContext": "SELF"
+                    },
+                    "operator": "EQUALS",
+                    "targetValue": 2
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "DEF",
+                            "amount": 4,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "amount": 8,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "DEBUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "amount": 4,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "MODIFY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "killStreakThisTurn",
+                            "mode": "SET",
+                            "amount": 0
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

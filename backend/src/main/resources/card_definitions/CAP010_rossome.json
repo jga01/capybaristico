@@ -1,0 +1,71 @@
+{
+    "cardId": "CAP010",
+    "name": "Rossome",
+    "type": "American,Capybara",
+    "initialLife": 2,
+    "attack": 2,
+    "defense": 3,
+    "effectText": "+2 damage from Kahina or Swettie. +5 DEF from American/Capybara damage.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "rossome.png",
+    "flavorText": "Takes one for the team.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "condition": {
+                "type": "SOURCE_HAS_CARD_ID",
+                "params": {
+                    "cardId": "CAP001"
+                }
+            },
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "params": {
+                "mode": "ADD_FLAT",
+                "amount": 2
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "condition": {
+                "type": "SOURCE_HAS_CARD_ID",
+                "params": {
+                    "cardId": "CAP005"
+                }
+            },
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "params": {
+                "mode": "ADD_FLAT",
+                "amount": 2
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "American"
+                }
+            },
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "params": {
+                "mode": "REDUCE_BY",
+                "amount": -5
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "Capybara"
+                }
+            },
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "params": {
+                "mode": "REDUCE_BY",
+                "amount": -5
+            }
+        }
+    ]
+}

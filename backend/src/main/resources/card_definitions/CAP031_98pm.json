@@ -1,0 +1,57 @@
+{
+    "cardId": "CAP031",
+    "name": "98pm",
+    "type": "Undead",
+    "initialLife": 1,
+    "attack": 11,
+    "defense": 0,
+    "effectText": "Only dies one turn after reaching 0 LIFE.",
+    "rarity": "RARE",
+    "imageUrl": "98pm.png",
+    "flavorText": "Not quite dead yet.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEATH",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "death_delayed",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "HEAL_TARGET",
+                        "params": {
+                            "targets": "SELF",
+                            "amount": 999
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "death_delayed",
+                            "value": true
+                        }
+                    },
+                    {
+                        "action": "SCHEDULE_ACTION",
+                        "params": {
+                            "delayInTurns": 1,
+                            "scheduledEffect": {
+                                "action": "DESTROY_CARD",
+                                "params": {
+                                    "targets": "SELF"
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

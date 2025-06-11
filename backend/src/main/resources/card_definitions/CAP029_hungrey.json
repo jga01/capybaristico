@@ -1,0 +1,43 @@
+{
+    "cardId": "CAP029",
+    "name": "Hungrey",
+    "type": "American",
+    "initialLife": 6,
+    "attack": 10,
+    "defense": 0,
+    "effectText": "When attacked, gains +2 ATK permanently. Then, deals damage to its attacker equal to its new ATK.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "hungrey.png",
+    "flavorText": "Always ready for a fight.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEFEND",
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "amount": 2,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "DEAL_DAMAGE",
+                        "params": {
+                            "targets": "EVENT_SOURCE",
+                            "amount": {
+                                "source": "STAT",
+                                "statName": "ATK",
+                                "cardContext": "SELF"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

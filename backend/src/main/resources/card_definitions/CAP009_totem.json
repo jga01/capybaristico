@@ -1,0 +1,64 @@
+{
+    "cardId": "CAP009",
+    "name": "Totem",
+    "type": "Indigenous",
+    "initialLife": 6,
+    "attack": 2,
+    "defense": 1,
+    "effectText": "If Jamestiago is in play, both get +10 LIFE and +1 ATK.",
+    "rarity": "COMMON",
+    "imageUrl": "totem.png",
+    "flavorText": "Ancient power awakens.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP008"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "MAX_LIFE",
+                        "amount": 10
+                    },
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP008"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "FRIENDLY_CARD_WITH_ID",
+                "context": {
+                    "cardId": "CAP008"
+                },
+                "buffs": [
+                    {
+                        "stat": "MAX_LIFE",
+                        "amount": 10
+                    },
+                    {
+                        "stat": "ATK",
+                        "amount": 1
+                    }
+                ]
+            }
+        }
+    ]
+}

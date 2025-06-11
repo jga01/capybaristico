@@ -1,0 +1,14 @@
+{
+    "cardId": "CAP017",
+    "name": "Tomate",
+    "type": "American",
+    "initialLife": 5,
+    "attack": 1,
+    "defense": 5,
+    "effectText": "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3. After 4 turns, duplicates a card.",
+    "rarity": "LEGENDARY",
+    "imageUrl": "tomate.png",
+    "flavorText": "The late game surprise.",
+    "isDirectlyPlayable": false,
+    "effectConfiguration": []
+}

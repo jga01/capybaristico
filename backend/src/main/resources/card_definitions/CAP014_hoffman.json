@@ -1,0 +1,48 @@
+{
+    "cardId": "CAP014",
+    "name": "Hoffman",
+    "type": "European",
+    "initialLife": 15,
+    "attack": 5,
+    "defense": 0,
+    "effectText": "Heals when damaged. Attacks cause 2 self-damage. Immune to Train's AoE.",
+    "rarity": "COMMON",
+    "imageUrl": "hoffman.png",
+    "flavorText": "Pain is gain?",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DAMAGE_TAKEN",
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "SELF",
+                "amount": {
+                    "source": "EVENT_DATA",
+                    "key": "damageAmount"
+                }
+            }
+        },
+        {
+            "trigger": "ON_ATTACK_DECLARE",
+            "action": "DEAL_DAMAGE",
+            "params": {
+                "targets": "SELF",
+                "amount": 2
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "condition": {
+                "type": "SOURCE_HAS_CARD_ID",
+                "params": {
+                    "cardId": "CAP002"
+                }
+            },
+            "params": {
+                "amount": 0,
+                "mode": "SET_ABSOLUTE"
+            }
+        }
+    ]
+}

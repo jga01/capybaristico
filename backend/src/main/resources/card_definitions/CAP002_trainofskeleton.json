@@ -1,0 +1,87 @@
+{
+    "cardId": "CAP002",
+    "name": "TrainofSkeleton",
+    "type": "Undead",
+    "initialLife": 8,
+    "attack": 1,
+    "defense": 0,
+    "effectText": "On entry and death, deals 4 AoE damage (including self). If dies to own effect, returns next turn. Gains +10 life if damages an American (once).",
+    "rarity": "SUPER_RARE",
+    "imageUrl": "train.png",
+    "flavorText": "The ride never ends.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_PLAY",
+            "action": "DEAL_DAMAGE",
+            "params": {
+                "targets": "ALL_CARDS_ON_FIELD",
+                "amount": 4
+            }
+        },
+        {
+            "trigger": "ON_DEATH",
+            "action": "DEAL_DAMAGE",
+            "params": {
+                "targets": "ALL_CARDS_ON_FIELD",
+                "amount": 4
+            }
+        },
+        {
+            "trigger": "ON_DEATH",
+            "condition": {
+                "type": "TRIGGER_SOURCE_IS_SELF"
+            },
+            "action": "SCHEDULE_ACTION",
+            "params": {
+                "delayInTurns": 2,
+                "scheduledEffect": {
+                    "action": "REAPPEAR"
+                }
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "ALL_OF",
+                "conditions": [
+                    {
+                        "type": "TARGET_HAS_TYPE",
+                        "params": {
+                            "typeName": "American"
+                        }
+                    },
+                    {
+                        "type": "SELF_HAS_FLAG",
+                        "params": {
+                            "flagName": "american_bonus_claimed",
+                            "mustBeAbsent": true
+                        }
+                    }
+                ]
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "BUFF_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "amount": 10,
+                            "isPermanent": true
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "american_bonus_claimed",
+                            "value": true
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

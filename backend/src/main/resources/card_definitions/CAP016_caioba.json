@@ -1,0 +1,38 @@
+{
+    "cardId": "CAP016",
+    "name": "Caioba",
+    "type": "American",
+    "initialLife": 1,
+    "attack": 1,
+    "defense": 10,
+    "effectText": "Can swap in for Menino when attacked. Gets +10 LIFE and +3 ATK with Menino. If Menino dies, becomes Undead with -3 ATK, -10 damage.",
+    "rarity": "RARE",
+    "imageUrl": "caioba.png",
+    "flavorText": "The protector.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP011"
+                }
+            },
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "MAX_LIFE",
+                        "amount": 10
+                    },
+                    {
+                        "stat": "ATK",
+                        "amount": 3
+                    }
+                ]
+            }
+        }
+    ]
+}

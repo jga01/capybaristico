@@ -1,0 +1,110 @@
+{
+    "cardId": "CAP003",
+    "name": "Leonico",
+    "type": "Femboy",
+    "initialLife": 3,
+    "attack": 0,
+    "defense": 20,
+    "effectText": "Immune to all damage. If a European card is played, becomes ATK 1 / DEF 5 / LIFE 5. Gains +2 damage vs Indigenous and Capybara. Dies instantly if attacked by European.",
+    "rarity": "UNCOMMON",
+    "imageUrl": "leonico.png",
+    "flavorText": "Don't judge a book...",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "CONTINUOUS_DEFENSIVE",
+            "action": "MODIFY_INCOMING_DAMAGE",
+            "params": {
+                "amount": 0,
+                "mode": "SET_ABSOLUTE"
+            }
+        },
+        {
+            "trigger": "ON_SUMMON",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "European"
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "SET_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "MAX_LIFE",
+                            "value": 5
+                        }
+                    },
+                    {
+                        "action": "SET_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "LIFE",
+                            "value": 5
+                        }
+                    },
+                    {
+                        "action": "SET_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "ATK",
+                            "value": 1
+                        }
+                    },
+                    {
+                        "action": "SET_STAT",
+                        "params": {
+                            "targets": "SELF",
+                            "stat": "DEF",
+                            "value": 5
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_DEFEND",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "European"
+                }
+            },
+            "action": "DESTROY_CARD",
+            "params": {
+                "targets": "SELF"
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_OFFENSIVE",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "Indigenous"
+                }
+            },
+            "action": "MODIFY_OUTGOING_DAMAGE",
+            "params": {
+                "mode": "ADD_FLAT",
+                "amount": 2
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_OFFENSIVE",
+            "condition": {
+                "type": "TARGET_HAS_TYPE",
+                "params": {
+                    "typeName": "Capybara"
+                }
+            },
+            "action": "MODIFY_OUTGOING_DAMAGE",
+            "params": {
+                "mode": "ADD_FLAT",
+                "amount": 2
+            }
+        }
+    ]
+}

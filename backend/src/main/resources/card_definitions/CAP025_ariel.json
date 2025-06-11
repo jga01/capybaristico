@@ -1,0 +1,55 @@
+{
+    "cardId": "CAP025",
+    "name": "Ariel",
+    "type": "Indigenous,Femboy",
+    "initialLife": 9,
+    "attack": 2,
+    "defense": 4,
+    "effectText": "“Dual Affinity”: Gains +4 DEF for each other Indigenous card on the field. If killed by a card, that attacker is silenced for 1 turn. Can heal another card +1 instead of attacking.",
+    "rarity": "RARE",
+    "imageUrl": "ariel.png",
+    "flavorText": "Spirit of the forest.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DEATH",
+            "action": "APPLY_FLAG",
+            "params": {
+                "targets": "EVENT_SOURCE",
+                "flagName": "status_silenced",
+                "value": true,
+                "duration": "TURN"
+            }
+        },
+        {
+            "trigger": "CONTINUOUS_AURA",
+            "action": "APPLY_AURA_BUFF",
+            "params": {
+                "targets": "SELF",
+                "buffs": [
+                    {
+                        "stat": "DEF",
+                        "amount": {
+                            "source": "DYNAMIC_COUNT",
+                            "countType": "FRIENDLY_CARDS_WITH_TYPE",
+                            "typeName": "Indigenous",
+                            "multiplier": 4
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Heal Ally +1",
+            "description": "Heal any other card for 1 life instead of attacking.",
+            "requiresTarget": "ANY_FIELD_CARD",
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "amount": 1
+            }
+        }
+    ]
+}

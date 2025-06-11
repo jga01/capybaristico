@@ -1,0 +1,31 @@
+{
+    "cardId": "CAP018",
+    "name": "Gloire",
+    "type": "American",
+    "initialLife": 6,
+    "attack": 1,
+    "defense": 0,
+    "effectText": "If damaged by European, stuns attacker 1 turn. Flip: heal +5 to any card or -3 damage. If dies by flip, revives as Undead (no effect). (VARIABLE LIFE: copy the highest life in field when joining. max 6)",
+    "rarity": "RARE",
+    "imageUrl": "gloire.png",
+    "flavorText": "Everchanging fate.",
+    "isDirectlyPlayable": true,
+    "effectConfiguration": [
+        {
+            "trigger": "ON_DAMAGE_TAKEN",
+            "condition": {
+                "type": "SOURCE_HAS_TYPE",
+                "params": {
+                    "typeName": "European"
+                }
+            },
+            "action": "APPLY_FLAG",
+            "params": {
+                "targets": "EVENT_SOURCE",
+                "flagName": "status_silenced",
+                "value": true,
+                "duration": "TURN"
+            }
+        }
+    ]
+}
