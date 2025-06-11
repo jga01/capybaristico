@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { produce } from 'immer';
+import { useGame } from '../context/GameContext'; // Import useGame hook
 import CanvasWrapper from './ThreeCanvas';
 import GameLog from './GameLog';
 import { emitGameCommand } from '../services/socketService';
@@ -24,7 +25,17 @@ const HTMLHandCard = ({ cardData, onClick, onMagnify, isSelected }) => {
 };
 
 
-const GameScreen = ({ initialGameState, playerId, gameId, eventBatch, commandError, clearCommandError }) => {
+const GameScreen = () => {
+    // Get all game data from the context
+    const {
+        gameId,
+        playerId,
+        initialGameState,
+        eventBatch,
+        commandError,
+        clearCommandError
+    } = useGame();
+
     const [localGameState, setLocalGameState] = useState(initialGameState);
     const [selectedHandCardInfo, setSelectedHandCardInfo] = useState(null);
     const [selectedAttackerInfo, setSelectedAttackerInfo] = useState(null);
@@ -249,22 +260,9 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             break;
         }
         case 'CARD_PLAYED': {
-            const player = getPlayer(event.playerId);
-            player.handSize = event.newHandSize;
-            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
-                player.hand.splice(event.fromHandIndex, 1);
-            }
-            // MODIFICATION: Use the new base stat fields from the DTO
-            player.field[event.toFieldSlot] = {
-                ...event.card,
-                isExhausted: true,
-                statChanges: {},
-                // The DTO now provides the correct base stats.
-                baseAttack: event.card.baseAttack,
-                baseDefense: event.card.baseDefense,
-                baseLife: event.card.baseLife,
-                effectFlags: {}
-            };
+            const player = getPlayer(event.playerId); player.handSize = event.newHandSize;
+            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) player.hand.splice(event.fromHandIndex, 1);
+            player.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, baseAttack: event.card.baseAttack, baseDefense: event.card.baseDefense, baseLife: event.card.baseLife, effectFlags: {} };
             break;
         }
         case 'ATTACK_DECLARED': { const info = findCardInfo(event.attackerInstanceId, draftState); if (info) { info.owner.attacksDeclaredThisTurn += 1; info.card.isExhausted = true; } break; }
@@ -281,10 +279,10 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             const info = findCardInfo(event.targetInstanceId, draftState);
             if (info) {
                 resetStatChanges(info.card);
-                if (event.stat === 'ATK') { info.card.statChanges.attack = true; info.card.currentAttack = event.value; info.card.baseAttack = event.value; }
-                if (event.stat === 'DEF') { info.card.statChanges.defense = true; info.card.currentDefense = event.value; info.card.baseDefense = event.value; }
-                if (event.stat === 'MAX_LIFE') { info.card.statChanges.life = true; info.card.baseLife = event.value; info.card.currentLife = Math.min(event.value, info.card.currentLife) }
-                if (event.stat === 'LIFE') { info.card.statChanges.life = true; info.card.currentLife = event.value; }
+                if (event.stat === 'ATK' && info.card.currentAttack !== event.value) { info.card.statChanges.attack = true; info.card.currentAttack = event.value; info.card.baseAttack = event.value; }
+                if (event.stat === 'DEF' && info.card.currentDefense !== event.value) { info.card.statChanges.defense = true; info.card.currentDefense = event.value; info.card.baseDefense = event.value; }
+                if (event.stat === 'MAX_LIFE' && info.card.baseLife !== event.value) { info.card.statChanges.life = true; info.card.baseLife = event.value; }
+                if (event.stat === 'LIFE' && info.card.currentLife !== event.value) { info.card.statChanges.life = true; info.card.currentLife = event.value; }
             }
             break;
         }
@@ -304,7 +302,7 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
                 resetStatChanges(info.card);
                 if (event.stat.toUpperCase() === "ATK") { info.card.statChanges.attack = true; info.card.currentAttack = event.statAfter; }
                 if (event.stat.toUpperCase() === "DEF") { info.card.statChanges.defense = true; info.card.currentDefense = event.statAfter; }
-                if (event.stat.toUpperCase() === "MAX_LIFE") { info.card.statChanges.life = true; info.card.currentLife = event.statAfter; info.card.baseLife += (event.eventType === 'CARD_BUFFED' ? event.amount : -event.amount) }
+                if (event.stat.toUpperCase() === "MAX_LIFE") { info.card.statChanges.life = true; info.card.currentLife = event.statAfter; }
             }
             break;
         }
