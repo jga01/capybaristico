@@ -33,32 +33,6 @@
                     }
                 ]
             }
-        },
-        {
-            "trigger": "CONTINUOUS_AURA",
-            "condition": {
-                "type": "FRIENDLY_CARD_IN_PLAY",
-                "params": {
-                    "cardId": "CAP008"
-                }
-            },
-            "action": "APPLY_AURA_BUFF",
-            "params": {
-                "targets": "FRIENDLY_CARD_WITH_ID",
-                "context": {
-                    "cardId": "CAP008"
-                },
-                "buffs": [
-                    {
-                        "stat": "MAX_LIFE",
-                        "amount": 10
-                    },
-                    {
-                        "stat": "ATK",
-                        "amount": 1
-                    }
-                ]
-            }
         }
     ]
 }

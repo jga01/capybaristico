@@ -10,5 +10,16 @@
     "imageUrl": "tomate.png",
     "flavorText": "The late game surprise.",
     "isDirectlyPlayable": false,
-    "effectConfiguration": []
+    "effectConfiguration": [
+        {
+            "trigger": "ON_PLAY",
+            "action": "BUFF_STAT",
+            "params": {
+                "targets": "SELF",
+                "stat": "DEF",
+                "amount": 5,
+                "isPermanent": true
+            }
+        }
+    ]
 }

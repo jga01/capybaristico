@@ -6,7 +6,6 @@ import com.jamestiago.capycards.game.dto.AbilityInfoDTO;
 import com.jamestiago.capycards.game.dto.CardInstanceDTO;
 import com.jamestiago.capycards.game.dto.PlayerStateDTO;
 import com.jamestiago.capycards.game.dto.GameStateResponse;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,11 +16,11 @@ import java.util.stream.Collectors;
 public class GameStateMapper {
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    public static GameStateResponse createGameStateResponse(Game game, String forWhosePlayerId) {
+    public static GameStateResponse createGameStateResponse(Game game, String forWhosePlayerId, String message) {
         GameStateResponse response = new GameStateResponse();
         response.setSuccess(true);
         response.setGameId(game.getGameId());
-        response.setMessage("Initial game state.");
+        response.setMessage(message);
         response.setCurrentGameState(game.getGameState());
         if (game.getCurrentPlayer() != null) {
             response.setCurrentPlayerId(game.getCurrentPlayer().getPlayerId());

@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 @Component
 public class GameSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(GameSocketHandler.class);
-
     private final SocketIOServer server;
     private final GameService gameService;
     private final ObjectMapper objectMapper; // Will be injected by Spring
@@ -263,11 +262,13 @@ public class GameSocketHandler {
 
                 List<GameEvent> startEvents = gameService.startGame(game);
 
-                GameStateResponse p1InitialState = GameStateMapper.createGameStateResponse(game, p1.getPlayerId());
+                GameStateResponse p1InitialState = GameStateMapper.createGameStateResponse(game, p1.getPlayerId(),
+                        "Initial game state.");
                 logger.debug("-> Sending 'game_ready' to P1 ({})", p1.getDisplayName());
                 creatorClient.sendEvent("game_ready", p1InitialState);
 
-                GameStateResponse p2InitialState = GameStateMapper.createGameStateResponse(game, p2.getPlayerId());
+                GameStateResponse p2InitialState = GameStateMapper.createGameStateResponse(game, p2.getPlayerId(),
+                        "Initial game state.");
                 logger.debug("-> Sending 'game_ready' to P2 ({})", p2.getDisplayName());
                 client.sendEvent("game_ready", p2InitialState);
 

@@ -50,7 +50,7 @@
             "action": "MODIFY_INCOMING_DAMAGE",
             "params": {
                 "mode": "REDUCE_BY",
-                "amount": -5
+                "amount": 5
             }
         },
         {
@@ -64,7 +64,7 @@
             "action": "MODIFY_INCOMING_DAMAGE",
             "params": {
                 "mode": "REDUCE_BY",
-                "amount": -5
+                "amount": 5
             }
         }
     ]

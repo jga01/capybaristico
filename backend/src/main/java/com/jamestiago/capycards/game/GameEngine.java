@@ -65,7 +65,6 @@ public class GameEngine {
 
         List<GameEvent> auraEvents = processAuras(gameAfterAction);
         allEvents.addAll(auraEvents);
-        auraEvents.forEach(gameAfterAction::apply);
 
         // Check for deaths after the primary action and auras have resolved.
         List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);

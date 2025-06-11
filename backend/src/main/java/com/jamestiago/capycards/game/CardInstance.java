@@ -1,7 +1,6 @@
 package com.jamestiago.capycards.game;
 
 import com.jamestiago.capycards.model.Card;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -16,7 +15,6 @@ public class CardInstance {
     int baseLife;
     int baseAttack;
     int baseDefense;
-
     // Current dynamic state
     private int currentLife;
     private boolean isExhausted;
@@ -217,9 +215,7 @@ public class CardInstance {
      */
     public void takeDamage(int amount, CardInstance source) {
         if (amount > 0) {
-            this.currentLife -= amount;
-            if (this.currentLife < 0)
-                this.currentLife = 0;
+            setCurrentLife(this.currentLife - amount);
             this.lastDamageSourceCard = source;
         }
     }
