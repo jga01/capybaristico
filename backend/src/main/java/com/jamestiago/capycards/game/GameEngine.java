@@ -67,7 +67,12 @@ public class GameEngine {
         allEvents.addAll(auraEvents);
         auraEvents.forEach(gameAfterAction::apply);
 
-        allEvents.addAll(checkForDeaths(gameAfterAction));
+        // Check for deaths after the primary action and auras have resolved.
+        List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);
+        allEvents.addAll(deathEvents);
+
+        // No need to apply death events here, they were already applied inside
+        // checkForDeaths' simulation
 
         logger.trace("[{}] Command {} resulted in {} total events.", game.getGameId(), command.getCommandType(),
                 allEvents.size());
@@ -456,7 +461,21 @@ public class GameEngine {
     private List<GameEvent> checkForDeaths(Game simulatedGame) {
         List<GameEvent> deathEvents = new ArrayList<>();
         boolean changed;
+
+        // MODIFICATION: Add a circuit breaker to prevent infinite loops.
+        int maxIterations = 30; // A reasonable limit, higher than any expected chain reaction.
+        int iterationCount = 0;
+
         do {
+            iterationCount++;
+            if (iterationCount > maxIterations) {
+                logger.error("[{}] Infinite loop detected in checkForDeaths! Forcing game over.",
+                        simulatedGame.getGameId());
+                deathEvents.add(new GameOverEvent(simulatedGame.getGameId(), simulatedGame.getTurnNumber(), null,
+                        "Game ended due to an unresolved infinite effect loop."));
+                break; // Exit the loop
+            }
+
             changed = false;
             List<CardInstance> cardsToCheck = Stream.concat(
                     simulatedGame.getPlayer1().getFieldInternal().stream(),
