@@ -78,10 +78,19 @@ public class GameStateMapper {
             dto.setImageUrl(def.getImageUrl());
             dto.setAbilities(parseAbilities(def.getEffectConfiguration()));
         }
+
+        // MODIFIED: Populate all base and current stats
+        dto.setBaseAttack(cardInstance.getBaseAttack());
+        dto.setBaseDefense(cardInstance.getBaseDefense());
+        dto.setBaseLife(cardInstance.getBaseLife());
+
         dto.setCurrentLife(cardInstance.getCurrentLife());
         dto.setCurrentAttack(cardInstance.getCurrentAttack());
         dto.setCurrentDefense(cardInstance.getCurrentDefense());
+
         dto.setIsExhausted(cardInstance.isExhausted());
+        dto.setEffectFlags(cardInstance.getAllEffectFlags());
+
         return dto;
     }
 
