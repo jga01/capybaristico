@@ -1,3 +1,5 @@
+// backend/src/main/java/com/jamestiago/capycards/game/effects/EffectProcessor.java
+
 package com.jamestiago.capycards.game.effects;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -432,7 +434,7 @@ public class EffectProcessor {
             }
             if (flags != null) {
                 for (Map.Entry<String, Object> flagEntry : flags.entrySet()) {
-                    target.setEffectFlag(flagEntry.getKey() + "_AURA", flagEntry.getValue());
+                    target.setEffectFlag(flagEntry.getKey(), flagEntry.getValue());
                 }
             }
         }
