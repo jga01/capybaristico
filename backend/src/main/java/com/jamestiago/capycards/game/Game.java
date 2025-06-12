@@ -145,8 +145,6 @@ public class Game {
         } else if (event instanceof GameOverEvent e) {
             applyGameOver(e);
         } else if (event instanceof CardStatsChangedEvent e) {
-            // This event is now informational for the client, it doesn't change server
-            // state.
         } else if (event instanceof CardHealedEvent e) {
             applyCardHealed(e);
         } else if (event instanceof CardBuffedEvent e) {
@@ -201,7 +199,7 @@ public class Game {
         this.currentPlayer = getPlayerById(event.startingPlayerId);
         if (this.currentPlayer != null) {
             this.currentPlayer.initialDraw(Player.MAX_HAND_SIZE);
-            getOpponent(this.currentPlayer).initialDraw(Player.MAX_HAND_SIZE);
+            getOpponent(this.currentPlayer).initialDraw(Player.MAX_HAND_SIZE - 1);
             this.gameState = this.currentPlayer == player1 ? GameState.PLAYER_1_TURN : GameState.PLAYER_2_TURN;
         } else {
             logger.error("Could not find starting player with ID {}", event.startingPlayerId);
