@@ -5,7 +5,7 @@
     "initialLife": 5,
     "attack": 1,
     "defense": 5,
-    "effectText": "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3. After 4 turns, duplicates a card from your deck into your deck.",
+    "effectText": "Cannot be played directly. Appears when only 3 cards remain in deck. Grants +5 DEF to all 3 other cards. After 4 turns, duplicates a card from your deck into your deck.",
     "rarity": "LEGENDARY",
     "imageUrl": "tomate.png",
     "flavorText": "The late game surprise.",
