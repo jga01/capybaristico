@@ -12,6 +12,19 @@
     "isDirectlyPlayable": true,
     "effectConfiguration": [
         {
+            "trigger": "ON_PLAY",
+            "action": "SET_STAT",
+            "params": {
+                "targets": "SELF",
+                "stat": "LIFE",
+                "value": {
+                    "source": "DYNAMIC_COUNT",
+                    "countType": "HIGHEST_LIFE_ON_FIELD_EXCLUDING_SELF",
+                    "maxValue": 6
+                }
+            }
+        },
+        {
             "trigger": "ON_DAMAGE_TAKEN",
             "condition": {
                 "type": "SOURCE_HAS_TYPE",
@@ -25,6 +38,44 @@
                 "flagName": "status_silenced",
                 "value": true,
                 "duration": "TURN"
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Flip: Heal",
+            "description": "Heal any card for 5 life.",
+            "requiresTarget": "ANY_FIELD_CARD",
+            "action": "HEAL_TARGET",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "amount": 5
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 1,
+            "name": "Flip: Damage",
+            "description": "Deal 3 damage to any card. If this kills Gloire, she revives as an Undead with no effect.",
+            "requiresTarget": "ANY_FIELD_CARD",
+            "action": "DEAL_DAMAGE",
+            "params": {
+                "targets": "ACTIVATION_CONTEXT_TARGET",
+                "amount": 3
+            }
+        },
+        {
+            "trigger": "ON_DEATH",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "died_by_flip"
+                }
+            },
+            "action": "TRANSFORM_CARD",
+            "params": {
+                "targets": "SELF",
+                "newCardId": "CAP018_UNDEAD"
             }
         }
     ]

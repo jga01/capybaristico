@@ -32,6 +32,78 @@
                     "status_cannot_attack_AURA": true
                 }
             }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Interference: Shred DEF",
+            "description": "Choose an enemy card and reduce its DEF to 0 until the end of their next turn. (Can only be used on the turn Famousbuilder is played)",
+            "requiresTarget": "OPPONENT_FIELD_CARD",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "interference_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "interference_used",
+                            "value": true
+                        }
+                    },
+                    {
+                        "action": "DEBUFF_STAT",
+                        "params": {
+                            "targets": "ACTIVATION_CONTEXT_TARGET",
+                            "stat": "DEF",
+                            "amount": 999,
+                            "isPermanent": false
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 1,
+            "name": "Interference: Silence",
+            "description": "Choose an enemy card and prevent it from using its effects this turn. (Can only be used on the turn Famousbuilder is played)",
+            "requiresTarget": "OPPONENT_FIELD_CARD",
+            "condition": {
+                "type": "SELF_HAS_FLAG",
+                "params": {
+                    "flagName": "interference_used",
+                    "mustBeAbsent": true
+                }
+            },
+            "action": "CHAINED_EFFECTS",
+            "params": {
+                "effects": [
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "interference_used",
+                            "value": true
+                        }
+                    },
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "ACTIVATION_CONTEXT_TARGET",
+                            "flagName": "status_silenced",
+                            "value": true,
+                            "duration": "TURN"
+                        }
+                    }
+                ]
+            }
         }
     ]
 }

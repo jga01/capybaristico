@@ -59,6 +59,63 @@
                     }
                 ]
             }
+        },
+        {
+            "trigger": "ACTIVATED",
+            "abilityOptionIndex": 0,
+            "name": "Copy Floppy's Skill",
+            "description": "If Floppy is in play, has a 50% chance to gain Floppy's multi-attack ability for this turn.",
+            "requiresTarget": "NONE",
+            "condition": {
+                "type": "FRIENDLY_CARD_IN_PLAY",
+                "params": {
+                    "cardId": "CAP004"
+                }
+            },
+            "action": "CHOOSE_RANDOM_EFFECT",
+            "params": {
+                "choices": [
+                    {
+                        "action": "APPLY_FLAG",
+                        "params": {
+                            "targets": "SELF",
+                            "flagName": "floppy_skill_copied",
+                            "value": true,
+                            "duration": "TURN"
+                        }
+                    },
+                    {
+                        "action": "GAME_LOG_MESSAGE",
+                        "params": {
+                            "message": "Chemadam fails to copy Floppy's skill."
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "trigger": "ON_DAMAGE_DEALT",
+            "condition": {
+                "type": "ALL_OF",
+                "conditions": [
+                    {
+                        "type": "SELF_HAS_FLAG",
+                        "params": {
+                            "flagName": "floppy_skill_copied"
+                        }
+                    },
+                    {
+                        "type": "TARGET_IS_DESTROYED"
+                    }
+                ]
+            },
+            "action": "APPLY_FLAG",
+            "params": {
+                "targets": "SELF",
+                "flagName": "canAttackAgainThisTurn",
+                "value": true,
+                "duration": "TURN"
+            }
         }
     ]
 }
