@@ -66,12 +66,21 @@ public class GameEngine {
         List<GameEvent> auraEvents = processAuras(gameAfterAction);
         allEvents.addAll(auraEvents);
 
-        // Check for deaths after the primary action and auras have resolved.
         List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);
         allEvents.addAll(deathEvents);
 
-        // No need to apply death events here, they were already applied inside
-        // checkForDeaths' simulation
+        if (!deathEvents.isEmpty()) {
+            logger.trace("[{}] Deaths occurred. Recalculating auras.", game.getGameId());
+            List<GameEvent> postDeathAuraEvents = processAuras(gameAfterAction);
+            allEvents.addAll(postDeathAuraEvents);
+
+            List<GameEvent> finalDeathCheckEvents = checkForDeaths(gameAfterAction);
+            if (!finalDeathCheckEvents.isEmpty()) {
+                logger.trace("[{}] Additional deaths found after post-death aura update. Adding events.",
+                        game.getGameId());
+                allEvents.addAll(finalDeathCheckEvents);
+            }
+        }
 
         logger.trace("[{}] Command {} resulted in {} total events.", game.getGameId(), command.getCommandType(),
                 allEvents.size());
