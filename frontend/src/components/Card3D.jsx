@@ -82,8 +82,11 @@ const Card3D = ({
         config: { duration: isVisuallyLeaving ? 800 : 200 }
     });
 
+    const currentEmissiveColor = useMemo(() => {
+        const colorValue = isHighlighted ? highlightColor : (auraColor || 0x000000);
+        return new THREE.Color(colorValue);
+    }, [isHighlighted, highlightColor, auraColor]);
 
-    const currentEmissiveColor = useMemo(() => new THREE.Color(auraColor || (isHighlighted ? highlightColor : 0x000000)), [auraColor, isHighlighted, highlightColor]);
 
     const getStatColor = (current, base, isLife = false) => {
         if (!base) base = current;
@@ -120,7 +123,6 @@ const Card3D = ({
             <animated.meshStandardMaterial attach="material-1" color="#202023" transparent opacity={opacity} />
             <animated.meshStandardMaterial attach="material-2" color="#202023" transparent opacity={opacity} />
             <animated.meshStandardMaterial attach="material-3" color="#202023" transparent opacity={opacity} />
-            {/* --- MODIFIED: Use texture props --- */}
             <animated.meshStandardMaterial attach="material-4" map={frontTexture} color={color} emissive={currentEmissiveColor} emissiveIntensity={emissiveIntensity} roughness={0.5} metalness={0.1} transparent opacity={opacity} />
             <animated.meshStandardMaterial attach="material-5" map={backTexture} color={color} emissive={currentEmissiveColor} emissiveIntensity={emissiveIntensity} roughness={0.5} metalness={0.1} transparent opacity={opacity} />
 
