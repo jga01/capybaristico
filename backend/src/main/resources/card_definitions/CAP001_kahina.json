@@ -14,8 +14,26 @@
         {
             "trigger": "ON_DAMAGE_TAKEN_OF_ANY",
             "condition": {
-                "type": "TRIGGER_SOURCE_IS_SELF",
-                "params": {}
+                "type": "ANY_OF",
+                "conditions": [
+                    {
+                        "type": "TRIGGER_SOURCE_IS_SELF",
+                        "params": {
+                            "mustBeAbsent": true
+                        }
+                    },
+                    {
+                        "type": "VALUE_COMPARISON",
+                        "params": {
+                            "sourceValue": {
+                                "source": "EVENT_DATA",
+                                "key": "damageAmount"
+                            },
+                            "operator": "GREATER_THAN",
+                            "targetValue": 0
+                        }
+                    }
+                ]
             },
             "action": "HEAL_TARGET",
             "params": {
