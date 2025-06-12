@@ -42,24 +42,21 @@
         {
             "trigger": "CONTINUOUS_DEFENSIVE",
             "condition": {
-                "type": "SOURCE_HAS_TYPE",
-                "params": {
-                    "typeName": "American"
-                }
-            },
-            "action": "MODIFY_INCOMING_DAMAGE",
-            "params": {
-                "mode": "REDUCE_BY",
-                "amount": 5
-            }
-        },
-        {
-            "trigger": "CONTINUOUS_DEFENSIVE",
-            "condition": {
-                "type": "SOURCE_HAS_TYPE",
-                "params": {
-                    "typeName": "Capybara"
-                }
+                "type": "ANY_OF",
+                "conditions": [
+                    {
+                        "type": "SOURCE_HAS_TYPE",
+                        "params": {
+                            "typeName": "American"
+                        }
+                    },
+                    {
+                        "type": "SOURCE_HAS_TYPE",
+                        "params": {
+                            "typeName": "Capybara"
+                        }
+                    }
+                ]
             },
             "action": "MODIFY_INCOMING_DAMAGE",
             "params": {

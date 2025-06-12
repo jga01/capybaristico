@@ -75,6 +75,24 @@ public class ValueResolver {
                         .filter(c -> c != null && !c.getInstanceId().equals(effectSource.getInstanceId()))
                         .count();
                 break;
+            case "HIGHEST_LIFE_ON_FIELD_EXCLUDING_SELF":
+                int maxLife = 0;
+                for (Player p : new Player[] { game.getPlayer1(), game.getPlayer2() }) {
+                    if (p != null) {
+                        for (CardInstance card : p.getFieldInternal()) {
+                            if (card != null && !card.getInstanceId().equals(effectSource.getInstanceId())) {
+                                if (card.getCurrentLife() > maxLife) {
+                                    maxLife = card.getCurrentLife();
+                                }
+                            }
+                        }
+                    }
+                }
+                Integer maxValue = (Integer) valueMap.get("maxValue");
+                if (maxValue != null) {
+                    return Math.min(maxLife, maxValue);
+                }
+                return maxLife;
             default:
                 logger.warn("Unknown dynamic count type: {}", countType);
                 return 0;

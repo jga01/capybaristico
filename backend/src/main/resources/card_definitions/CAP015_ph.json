@@ -62,15 +62,15 @@
                 "type": "ANY_OF",
                 "conditions": [
                     {
-                        "type": "TARGET_HAS_TYPE",
+                        "type": "SOURCE_HAS_CARD_ID",
                         "params": {
-                            "typeName": "Jamestiago"
+                            "cardId": "CAP008"
                         }
                     },
                     {
-                        "type": "TARGET_HAS_TYPE",
+                        "type": "SOURCE_HAS_CARD_ID",
                         "params": {
-                            "typeName": "Menino-Veneno"
+                            "cardId": "CAP011"
                         }
                     }
                 ]
