@@ -265,13 +265,10 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
                 player.hand.splice(event.fromHandIndex, 1);
             }
-            // FIX: Remove `effectFlags: {}` to preserve flags from the server's DTO.
             player.field[event.toFieldSlot] = {
                 ...event.card,
                 isExhausted: true,
                 statChanges: {}
-                // The DTO from `event.card` already has the correct base stats and effectFlags.
-                // No need to explicitly set them or overwrite them here.
             };
             break;
         }
@@ -324,7 +321,14 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
         }
         case 'CARD_TRANSFORMED': {
             const info = findCardInfo(event.originalInstanceId, draftState);
-            if (info) { const newCard = { ...event.newCardDto, isExhausted: true, statChanges: {}, baseAttack: event.newCardDto.currentAttack, baseDefense: event.newCardDto.currentDefense, baseLife: event.newCardDto.currentLife, effectFlags: {} }; info.owner.field[info.index] = newCard; }
+            if (info) {
+                const newCard = {
+                    ...event.newCardDto, // This carries over all server-authoritative state
+                    isExhausted: true,
+                    statChanges: {},
+                };
+                info.owner.field[info.index] = newCard;
+            }
             break;
         }
         case 'CARD_VANISHED': {
@@ -334,7 +338,17 @@ function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
             }
             break;
         }
-        case 'CARD_REAPPEARED': { const owner = getPlayer(event.ownerPlayerId); if (owner) owner.field[event.toFieldSlot] = { ...event.card, isExhausted: true, statChanges: {}, effectFlags: {} }; break; }
+        case 'CARD_REAPPEARED': {
+            const owner = getPlayer(event.ownerPlayerId);
+            if (owner) {
+                owner.field[event.toFieldSlot] = {
+                    ...event.card,
+                    isExhausted: true,
+                    statChanges: {},
+                };
+            }
+            break;
+        }
     }
 }
 
