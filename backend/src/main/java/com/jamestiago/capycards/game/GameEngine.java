@@ -63,28 +63,17 @@ public class GameEngine {
         Game gameAfterAction = new Game(result.simulatedGame());
         List<GameEvent> allEvents = new ArrayList<>(result.events());
 
-        // Step 1: Process auras based on the state immediately after the command's
-        // action.
         List<GameEvent> auraEvents = processAuras(gameAfterAction);
         allEvents.addAll(auraEvents);
 
-        // Step 2: Check for any deaths that resulted from the command and initial aura
-        // updates.
-        // This method applies the death events to the 'gameAfterAction' simulation
-        // internally.
         List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);
         allEvents.addAll(deathEvents);
 
-        // Step 3: If any deaths occurred, the board state has changed,
-        // so we MUST recalculate auras to remove any buffs from now-dead cards.
         if (!deathEvents.isEmpty()) {
             logger.trace("[{}] Deaths occurred. Recalculating auras.", game.getGameId());
             List<GameEvent> postDeathAuraEvents = processAuras(gameAfterAction);
             allEvents.addAll(postDeathAuraEvents);
 
-            // It's possible for an aura change to kill a card (e.g. an effect that sets
-            // life based on another card that just died)
-            // so we do one final death check. This handles complex chain reactions.
             List<GameEvent> finalDeathCheckEvents = checkForDeaths(gameAfterAction);
             if (!finalDeathCheckEvents.isEmpty()) {
                 logger.trace("[{}] Additional deaths found after post-death aura update. Adding events.",
@@ -425,32 +414,52 @@ public class GameEngine {
         Player nextPlayer = tempGame.getOpponent(endingPlayer);
         int currentTurnNumber = game.getTurnNumber();
 
-        if (nextPlayer.getDeck().isEmpty()) {
-            String reason = nextPlayer.getDisplayName() + " cannot draw a card and has lost.";
-            GameOverEvent gameOverEvent = new GameOverEvent(game.getGameId(), currentTurnNumber + 1,
-                    endingPlayer.getPlayerId(), reason);
-            events.add(gameOverEvent);
-            tempGame.apply(gameOverEvent); // Apply to simulation to prevent further actions
-            return new CommandResult(events, tempGame);
+        Player.DrawOutcome outcome = nextPlayer.drawCardWithOutcome();
+        switch (outcome.result()) {
+            case DECK_EMPTY:
+                String reason = nextPlayer.getDisplayName() + " cannot draw a card and has lost.";
+                GameOverEvent gameOverEvent = new GameOverEvent(game.getGameId(), currentTurnNumber + 1,
+                        endingPlayer.getPlayerId(), reason);
+                events.add(gameOverEvent);
+                tempGame.apply(gameOverEvent);
+                return new CommandResult(events, tempGame);
+            case SUCCESS:
+                TurnStartedEvent startedEvent = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
+                        nextPlayer.getPlayerId());
+                events.add(startedEvent);
+                tempGame.apply(startedEvent);
+
+                PlayerDrewCardEvent drewEvent = new PlayerDrewCardEvent(
+                        game.getGameId(), startedEvent.newTurnNumber, nextPlayer.getPlayerId(),
+                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
+                        nextPlayer.getHand().size(),
+                        nextPlayer.getDeck().size());
+                events.add(drewEvent);
+                // The state change was already handled by drawCardWithOutcome, so no
+                // tempGame.apply needed
+                break;
+            case HAND_FULL:
+                TurnStartedEvent startedEventHandFull = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
+                        nextPlayer.getPlayerId());
+                events.add(startedEventHandFull);
+                tempGame.apply(startedEventHandFull);
+
+                PlayerOverdrewCardEvent overdrewEvent = new PlayerOverdrewCardEvent(
+                        game.getGameId(), startedEventHandFull.newTurnNumber, nextPlayer.getPlayerId(),
+                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
+                        nextPlayer.getDeck().size(),
+                        nextPlayer.getDiscardPile().size());
+                events.add(overdrewEvent);
+                break;
         }
 
-        TurnStartedEvent startedEvent = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
-                nextPlayer.getPlayerId());
-        events.add(startedEvent);
-        tempGame.apply(startedEvent);
+        TurnStartedEvent finalTurnStartEvent = (TurnStartedEvent) events.stream()
+                .filter(e -> e instanceof TurnStartedEvent)
+                .findFirst()
+                .orElse(null); // Should always be present
 
-        int newTurnNumber = startedEvent.newTurnNumber;
-
-        if (nextPlayer.getHand().size() < Player.MAX_HAND_SIZE && !nextPlayer.getDeck().isEmpty()) {
-            CardInstance cardToDraw = nextPlayer.getDeck().getCards().get(0);
-            PlayerDrewCardEvent drewEvent = new PlayerDrewCardEvent(
-                    game.getGameId(), newTurnNumber, nextPlayer.getPlayerId(),
-                    GameStateMapper.mapCardInstanceToDTO(cardToDraw),
-                    nextPlayer.getHand().size() + 1,
-                    nextPlayer.getDeck().size() - 1);
-            events.add(drewEvent);
-            tempGame.apply(drewEvent);
-        }
+        if (finalTurnStartEvent == null)
+            return new CommandResult(events, tempGame); // Should never happen
 
         List<GameEvent> startOfTurnScheduledEvents = processScheduledActions(tempGame, nextPlayer);
         for (GameEvent e : startOfTurnScheduledEvents) {
@@ -516,7 +525,6 @@ public class GameEngine {
                         if (owner == null)
                             continue;
 
-                        // Phase 1: Fire ON_DEATH triggers for the dying card itself.
                         CardInstance killer = cardInSim.getLastDamageSourceCard();
                         Map<String, Object> deathContext = new HashMap<>();
                         deathContext.put("eventTarget", cardInSim);
@@ -531,20 +539,13 @@ public class GameEngine {
                             simulatedGame.apply(triggerEvent);
                         }
 
-                        // Phase 1.5: Re-check if the card saved itself.
-                        // If the card is no longer dead after its own death triggers resolved, it has
-                        // saved itself.
                         if (!isCardDead(cardInSim)) {
                             logger.debug("Card {} saved itself from death with an ON_DEATH trigger.",
                                     cardInSim.getDefinition().getName());
-                            // Mark that the state has changed and break to restart the main `do-while`
-                            // loop.
-                            // This correctly handles the state change and prevents wrongful destruction.
                             changed = true;
                             break;
                         }
 
-                        // Phase 2: Fire ON_DEATH_OF_ANY for all other cards.
                         List<CardInstance> observers = new ArrayList<>(cardsToCheck);
                         for (CardInstance observerCard : observers) {
                             if (!observerCard.getInstanceId().equals(cardInSim.getInstanceId())) {
@@ -562,8 +563,6 @@ public class GameEngine {
                             }
                         }
 
-                        // Phase 3: Create and apply the CardDestroyedEvent to officially remove the
-                        // card.
                         CardDestroyedEvent destroyEvent = new CardDestroyedEvent(simulatedGame.getGameId(),
                                 simulatedGame.getTurnNumber(), GameStateMapper.mapCardInstanceToDTO(cardInSim),
                                 owner.getPlayerId());

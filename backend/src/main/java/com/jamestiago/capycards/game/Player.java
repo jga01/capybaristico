@@ -21,6 +21,15 @@ public class Player {
 
     private int attacksDeclaredThisTurn = 0;
 
+    public enum DrawResult {
+        SUCCESS,
+        HAND_FULL,
+        DECK_EMPTY
+    }
+
+    public record DrawOutcome(DrawResult result, CardInstance cardDrawn) {
+    }
+
     /**
      * Original constructor for creating a new player at the start of a game.
      */
@@ -64,6 +73,27 @@ public class Player {
      */
     public boolean isAi() {
         return false;
+    }
+
+    /**
+     * Draws a card and returns an object detailing the outcome.
+     * 
+     * @return DrawOutcome object with the result and the card instance.
+     */
+    public DrawOutcome drawCardWithOutcome() {
+        if (deck.isEmpty()) {
+            return new DrawOutcome(DrawResult.DECK_EMPTY, null);
+        }
+        CardInstance drawnCard = deck.draw();
+        if (drawnCard != null && hand.size() < MAX_HAND_SIZE) {
+            hand.add(drawnCard);
+            return new DrawOutcome(DrawResult.SUCCESS, drawnCard);
+        } else if (drawnCard != null) {
+            discardPile.add(drawnCard); // Discard if hand is full
+            return new DrawOutcome(DrawResult.HAND_FULL, drawnCard);
+        }
+        // This case should not be reached if deck is not empty, but as a fallback:
+        return new DrawOutcome(DrawResult.DECK_EMPTY, null);
     }
 
     // Returns the drawn card, or null if deck is empty
