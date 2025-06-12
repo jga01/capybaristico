@@ -1,3 +1,5 @@
+// backend/src/main/java/com/jamestiago/capycards/game/GameEngine.java
+
 package com.jamestiago.capycards.game;
 
 import com.jamestiago.capycards.game.commands.*;
@@ -593,11 +595,6 @@ public class GameEngine {
             logger.error("[{}] Command {} validation failed: Player ID {} not found in game.", game.getGameId(),
                     command.getCommandType(), command.playerId);
             return false;
-        }
-
-        if (player.isAi()) {
-            logger.trace("Bypassing turn validation for AI player command.");
-            return true;
         }
 
         if (game.getCurrentPlayer() != player) {
