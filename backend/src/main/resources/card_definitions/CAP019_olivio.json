@@ -61,10 +61,7 @@
                 "scheduledEffect": {
                     "action": "DESTROY_CARD",
                     "params": {
-                        "targets": "ENEMY_CARD_WITH_ID",
-                        "context": {
-                            "cardId": "CAP001"
-                        }
+                        "targets": "SELF"
                     }
                 }
             }

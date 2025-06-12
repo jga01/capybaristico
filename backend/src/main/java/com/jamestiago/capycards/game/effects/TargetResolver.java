@@ -57,12 +57,30 @@ public class TargetResolver {
                 }
                 break;
 
+            case "ALL_FRIENDLY_CARDS_IN_DECK":
+                if (sourceOwner != null && sourceOwner.getDeck() != null) {
+                    List<CardInstance> deckCards = sourceOwner.getDeck().getCards();
+                    if (deckCards != null) {
+                        potentialTargets.addAll(deckCards);
+                    }
+                }
+                break;
+
             case "RANDOM_FRIENDLY_CARD_ON_FIELD":
                 if (sourceOwner != null) {
                     List<CardInstance> friendlyCards = sourceOwner.getFieldInternal().stream().filter(c -> c != null)
                             .collect(Collectors.toList());
                     if (!friendlyCards.isEmpty()) {
                         potentialTargets.add(friendlyCards.get(random.nextInt(friendlyCards.size())));
+                    }
+                }
+                break;
+
+            case "RANDOM_FRIENDLY_CARD_IN_DECK":
+                if (sourceOwner != null && sourceOwner.getDeck() != null) {
+                    List<CardInstance> deckCards = sourceOwner.getDeck().getCards();
+                    if (deckCards != null && !deckCards.isEmpty()) {
+                        potentialTargets.add(deckCards.get(random.nextInt(deckCards.size())));
                     }
                 }
                 break;
