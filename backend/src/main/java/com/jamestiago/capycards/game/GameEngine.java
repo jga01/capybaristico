@@ -63,17 +63,28 @@ public class GameEngine {
         Game gameAfterAction = new Game(result.simulatedGame());
         List<GameEvent> allEvents = new ArrayList<>(result.events());
 
+        // Step 1: Process auras based on the state immediately after the command's
+        // action.
         List<GameEvent> auraEvents = processAuras(gameAfterAction);
         allEvents.addAll(auraEvents);
 
+        // Step 2: Check for any deaths that resulted from the command and initial aura
+        // updates.
+        // This method applies the death events to the 'gameAfterAction' simulation
+        // internally.
         List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);
         allEvents.addAll(deathEvents);
 
+        // Step 3: If any deaths occurred, the board state has changed,
+        // so we MUST recalculate auras to remove any buffs from now-dead cards.
         if (!deathEvents.isEmpty()) {
             logger.trace("[{}] Deaths occurred. Recalculating auras.", game.getGameId());
             List<GameEvent> postDeathAuraEvents = processAuras(gameAfterAction);
             allEvents.addAll(postDeathAuraEvents);
 
+            // It's possible for an aura change to kill a card (e.g. an effect that sets
+            // life based on another card that just died)
+            // so we do one final death check. This handles complex chain reactions.
             List<GameEvent> finalDeathCheckEvents = checkForDeaths(gameAfterAction);
             if (!finalDeathCheckEvents.isEmpty()) {
                 logger.trace("[{}] Additional deaths found after post-death aura update. Adding events.",
@@ -473,8 +484,7 @@ public class GameEngine {
         List<GameEvent> deathEvents = new ArrayList<>();
         boolean changed;
 
-        // MODIFICATION: Add a circuit breaker to prevent infinite loops.
-        int maxIterations = 30; // A reasonable limit, higher than any expected chain reaction.
+        int maxIterations = 30;
         int iterationCount = 0;
 
         do {
@@ -484,7 +494,7 @@ public class GameEngine {
                         simulatedGame.getGameId());
                 deathEvents.add(new GameOverEvent(simulatedGame.getGameId(), simulatedGame.getTurnNumber(), null,
                         "Game ended due to an unresolved infinite effect loop."));
-                break; // Exit the loop
+                break;
             }
 
             changed = false;
@@ -507,10 +517,9 @@ public class GameEngine {
                             continue;
 
                         // Phase 1: Fire ON_DEATH triggers for the dying card itself.
-                        // The card is still on the field at this point.
                         CardInstance killer = cardInSim.getLastDamageSourceCard();
                         Map<String, Object> deathContext = new HashMap<>();
-                        deathContext.put("eventTarget", cardInSim); // The card that is dying
+                        deathContext.put("eventTarget", cardInSim);
                         if (killer != null) {
                             deathContext.put("eventSource",
                                     simulatedGame.findCardInstanceFromAnyField(killer.getInstanceId()));
@@ -522,15 +531,26 @@ public class GameEngine {
                             simulatedGame.apply(triggerEvent);
                         }
 
+                        // Phase 1.5: Re-check if the card saved itself.
+                        // If the card is no longer dead after its own death triggers resolved, it has
+                        // saved itself.
+                        if (!isCardDead(cardInSim)) {
+                            logger.debug("Card {} saved itself from death with an ON_DEATH trigger.",
+                                    cardInSim.getDefinition().getName());
+                            // Mark that the state has changed and break to restart the main `do-while`
+                            // loop.
+                            // This correctly handles the state change and prevents wrongful destruction.
+                            changed = true;
+                            break;
+                        }
+
                         // Phase 2: Fire ON_DEATH_OF_ANY for all other cards.
-                        // The dying card is still on the field, so its properties can be checked.
                         List<CardInstance> observers = new ArrayList<>(cardsToCheck);
                         for (CardInstance observerCard : observers) {
                             if (!observerCard.getInstanceId().equals(cardInSim.getInstanceId())) {
                                 CardInstance observerInSim = simulatedGame
                                         .findCardInstanceFromAnyField(observerCard.getInstanceId());
-                                if (observerInSim != null && !isCardDead(observerInSim)) { // Ensure observer is not
-                                                                                           // also dead
+                                if (observerInSim != null && !isCardDead(observerInSim)) {
                                     Player observerOwner = simulatedGame.getOwnerOfCardInstance(observerInSim);
                                     List<GameEvent> onDeathOfAnyTriggers = effectProcessor.processTrigger(simulatedGame,
                                             EffectTrigger.ON_DEATH_OF_ANY, observerInSim, observerOwner, deathContext);
@@ -551,8 +571,6 @@ public class GameEngine {
                         simulatedGame.apply(destroyEvent);
                         changed = true;
 
-                        // Since the state changed, we break to restart the loop from the top
-                        // This ensures we correctly handle chain reactions of deaths.
                         break;
                     }
                 }
@@ -578,8 +596,6 @@ public class GameEngine {
             return false;
         }
 
-        // AI commands are generated by the server and are assumed to be valid.
-        // We bypass the 'is it your turn?' check for them.
         if (player.isAi()) {
             logger.trace("Bypassing turn validation for AI player command.");
             return true;
