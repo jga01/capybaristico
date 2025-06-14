@@ -174,18 +174,18 @@ export const offGameReady = () => {
     if (currentSocket) currentSocket.off('game_ready');
 };
 
-export const onGameEvents = (callback) => {
+export const onGameStateUpdate = (callback) => {
     const currentSocket = getSocket();
     if (currentSocket) {
-        currentSocket.on('game_events', (data) => {
-            log('ON game_events', data);
+        currentSocket.on('game_state_update', (data) => {
+            log('ON game_state_update', data);
             callback(data);
         });
     }
 };
-export const offGameEvents = () => {
+export const offGameStateUpdate = () => {
     const currentSocket = getSocket();
-    if (currentSocket) currentSocket.off('game_events');
+    if (currentSocket) currentSocket.off('game_state_update');
 };
 
 export const emitGameCommand = (commandData) => {

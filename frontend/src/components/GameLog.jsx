@@ -18,10 +18,8 @@ const GameLog = ({ eventBatch, player1, player2 }) => {
                 return `Turn ${event.newTurnNumber} begins. It's ${getPlayerName(event.newTurnPlayerId)}'s turn.`;
             case 'CARD_PLAYED':
                 return `${getPlayerName(event.playerId)} played ${event.card.name}.`;
-            // ======================== START OF MODIFIED SECTION ========================
             case 'PLAYER_OVERDREW_CARD':
                 return `Hand was full! ${getPlayerName(event.playerId)} discarded ${event.discardedCard.name}.`;
-            // ========================= END OF MODIFIED SECTION =========================
             case 'ATTACK_DECLARED':
                 return `${event.attackerCardName} attacks ${event.defenderCardName}.`;
             case 'COMBAT_DAMAGE_DEALT':

@@ -5,9 +5,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jamestiago.capycards.game.Game;
 import com.jamestiago.capycards.game.GameEngine;
+import com.jamestiago.capycards.game.GameStateMapper;
 import com.jamestiago.capycards.game.Player;
 import com.jamestiago.capycards.game.ai.AIPlayer;
 import com.jamestiago.capycards.game.commands.GameCommand;
+import com.jamestiago.capycards.game.dto.GameStateResponse;
 import com.jamestiago.capycards.game.events.GameEvent;
 import com.jamestiago.capycards.game.events.PlayerDrewCardEvent;
 import com.jamestiago.capycards.game.events.GameStartedEvent;
@@ -38,8 +40,8 @@ public class GameService {
   private final CardRepository cardRepository;
   private final GameEngine gameEngine;
   private final AIService aiService;
-  private final SocketIOServer socketServer; // New dependency
-  private final ObjectMapper objectMapper; // New dependency
+  private final SocketIOServer socketServer;
+  private final ObjectMapper objectMapper;
 
   @Autowired
   public GameService(CardRepository cardRepository, GameEngine gameEngine, @Lazy AIService aiService,
@@ -47,8 +49,8 @@ public class GameService {
     this.cardRepository = cardRepository;
     this.gameEngine = gameEngine;
     this.aiService = aiService;
-    this.socketServer = socketServer; // Inject SocketIOServer
-    this.objectMapper = objectMapper; // Inject ObjectMapper
+    this.socketServer = socketServer;
+    this.objectMapper = objectMapper;
     logger.info("GameService initialized.");
   }
 
@@ -159,6 +161,15 @@ public class GameService {
         return;
       }
 
+      // Log the complete game state BEFORE the command is processed.
+      try {
+        String stateBefore = objectMapper.writeValueAsString(
+            GameStateMapper.createGameStateResponse(game, "SERVER_VIEW", "Pre-command state"));
+        logger.info("STATE BEFORE CMD [{}]: {}", command.getCommandType(), stateBefore);
+      } catch (Exception e) {
+        logger.error("Failed to serialize pre-command game state for logging.", e);
+      }
+
       Player playerBeforeCommand = game.getCurrentPlayer();
 
       List<GameEvent> events = gameEngine.processCommand(game, command);
@@ -166,8 +177,6 @@ public class GameService {
       if (events.isEmpty()) {
         logger.warn("Command {} from player {} for game {} resulted in NO events. Action was likely invalid.",
             command.getCommandType(), command.playerId, game.getGameId());
-        // Optionally send a "command_rejected" event back to the single client
-        // For now, we do nothing to avoid complex client handling.
         return;
       }
 
@@ -191,34 +200,33 @@ public class GameService {
   private void applyAndBroadcast(Game game, List<GameEvent> events) {
     if (events == null || events.isEmpty())
       return;
+
     // Apply events to the master game state
     for (GameEvent event : events) {
       game.apply(event);
     }
     logger.debug("[{}] Applied {} events. New game state: {}", game.getGameId(), events.size(), game.getGameState());
 
-    // Broadcast tailored events to clients
-    // This is now the single point of broadcasting, ensuring AI moves are also
-    // sent.
+    // The new payload will contain both the new state and the events for animation
     socketServer.getRoomOperations(game.getGameId()).getClients().forEach(c -> {
-      // This assumes client session UUIDs are mapped to player IDs elsewhere
-      // (GameSocketHandler)
-      // For AI games, the AI doesn't have a client, so we just send to the human.
-      // This logic can be enhanced with a proper session-to-player map if needed.
-      // For now, we just tailor for every client in the room.
-      String viewingPlayerId = (String) c.get("playerId"); // Assuming we store this on the client session
+      String viewingPlayerId = (String) c.get("playerId");
       if (viewingPlayerId != null) {
+        // Create the authoritative new state for this player's perspective
+        GameStateResponse newState = GameStateMapper.createGameStateResponse(game, viewingPlayerId, "State updated.");
+
+        // Tailor events to hide private information (like cards drawn by opponent)
         List<GameEvent> tailoredEvents = tailorEventsForPlayer(events, viewingPlayerId);
         List<Map<String, Object>> tailoredEventData = convertEventsToMapList(tailoredEvents);
-        c.sendEvent("game_events", tailoredEventData);
-      } else {
-        // This case handles sending to a client whose player mapping isn't found,
-        // it will receive the untailored (public) version of events.
-        c.sendEvent("game_events", convertEventsToMapList(events));
+
+        // Send a new, combined event
+        c.sendEvent("game_state_update", Map.of(
+            "newState", newState,
+            "events", tailoredEventData));
       }
     });
 
-    logger.debug("[{}] Broadcasted {} events to room.", game.getGameId(), events.size());
+    logger.debug("[{}] Broadcasted new state and {} events to room.", game.getGameId(), events.size());
+    // --- END OF MODIFICATION ---
   }
 
   private List<GameEvent> tailorEventsForPlayer(List<GameEvent> originalEvents, String targetPlayerId) {

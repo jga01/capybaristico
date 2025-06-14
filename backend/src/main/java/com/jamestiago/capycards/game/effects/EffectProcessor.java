@@ -85,7 +85,7 @@ public class EffectProcessor {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean checkCondition(Game game, Map<String, Object> effectConfig, CardInstance source, Player owner,
+    public boolean checkCondition(Game game, Map<String, Object> effectConfig, CardInstance source, Player owner,
             Map<String, Object> context) {
         if (!effectConfig.containsKey("condition")) {
             return true;

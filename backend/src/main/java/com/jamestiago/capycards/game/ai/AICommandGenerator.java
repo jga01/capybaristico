@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 public class AICommandGenerator {
     // A single ObjectMapper instance can be reused.
@@ -63,7 +65,6 @@ public class AICommandGenerator {
         for (int fieldIndex = 0; fieldIndex < aiPlayer.getField().size(); fieldIndex++) {
             CardInstance sourceCard = aiPlayer.getField().get(fieldIndex);
             if (sourceCard != null && !sourceCard.isExhausted()) {
-                // ======================== START OF MODIFIED SECTION ========================
                 String jsonConfig = sourceCard.getDefinition().getEffectConfiguration();
                 if (jsonConfig == null || jsonConfig.isBlank())
                     continue;
@@ -85,50 +86,36 @@ public class AICommandGenerator {
 
                         String requiresTarget = ability.getRequiresTarget();
 
-                        if (requiresTarget == null || requiresTarget.equalsIgnoreCase("NONE")) {
-                            // Check condition before adding the command
+                        // Helper function to check condition and add command
+                        BiConsumer<String, Integer> checkAndAdd = (targetId, abilityIndex) -> {
                             Map<String, Object> context = new HashMap<>();
-                            context.put("abilityOptionIndex", ability.getIndex());
-                            // Create a dummy GameCommand context for the condition checker, which expects
-                            // it.
-                            // The condition checker is part of the effect processor which is designed for
-                            // command handling.
-                            // We are using a part of it here to pre-validate.
-                            if (checkAbilityCondition(game, effectConfig, sourceCard, aiPlayer, context)) {
-                                commands.add(new ActivateAbilityCommand(game.getGameId(), aiPlayerId,
-                                        sourceCard.getInstanceId(), null, ability.getIndex()));
+                            context.put("game", game); // Add game object to context
+                            context.put("abilityOptionIndex", abilityIndex);
+                            if (targetId != null) {
+                                context.put("targetCardInstanceId", targetId);
                             }
+
+                            // Directly call the now-public method in EffectProcessor
+                            if (effectProcessor.checkCondition(game, effectConfig, sourceCard, aiPlayer, context)) {
+                                commands.add(new ActivateAbilityCommand(game.getGameId(), aiPlayerId,
+                                        sourceCard.getInstanceId(), targetId, abilityIndex));
+                            }
+                        };
+
+                        if (requiresTarget == null || requiresTarget.equalsIgnoreCase("NONE")) {
+                            checkAndAdd.accept(null, ability.getIndex());
                         } else {
-                            // For targeted abilities, generate commands for each valid target
                             if (requiresTarget.equalsIgnoreCase("ANY_FIELD_CARD")
                                     || requiresTarget.equalsIgnoreCase("OPPONENT_FIELD_CARD")) {
-                                for (CardInstance targetCard : opponent.getField()) {
-                                    if (targetCard != null) {
-                                        Map<String, Object> context = new HashMap<>();
-                                        context.put("abilityOptionIndex", ability.getIndex());
-                                        context.put("targetCardInstanceId", targetCard.getInstanceId());
-                                        if (checkAbilityCondition(game, effectConfig, sourceCard, aiPlayer, context)) {
-                                            commands.add(new ActivateAbilityCommand(game.getGameId(), aiPlayerId,
-                                                    sourceCard.getInstanceId(), targetCard.getInstanceId(),
-                                                    ability.getIndex()));
-                                        }
-                                    }
-                                }
+                                opponent.getField().stream().filter(Objects::nonNull)
+                                        .forEach(targetCard -> checkAndAdd.accept(targetCard.getInstanceId(),
+                                                ability.getIndex()));
                             }
                             if (requiresTarget.equalsIgnoreCase("ANY_FIELD_CARD")
                                     || requiresTarget.equalsIgnoreCase("OWN_FIELD_CARD")) {
-                                for (CardInstance targetCard : aiPlayer.getField()) {
-                                    if (targetCard != null) {
-                                        Map<String, Object> context = new HashMap<>();
-                                        context.put("abilityOptionIndex", ability.getIndex());
-                                        context.put("targetCardInstanceId", targetCard.getInstanceId());
-                                        if (checkAbilityCondition(game, effectConfig, sourceCard, aiPlayer, context)) {
-                                            commands.add(new ActivateAbilityCommand(game.getGameId(), aiPlayerId,
-                                                    sourceCard.getInstanceId(), targetCard.getInstanceId(),
-                                                    ability.getIndex()));
-                                        }
-                                    }
-                                }
+                                aiPlayer.getField().stream().filter(Objects::nonNull)
+                                        .forEach(targetCard -> checkAndAdd.accept(targetCard.getInstanceId(),
+                                                ability.getIndex()));
                             }
                         }
                     }
@@ -136,7 +123,6 @@ public class AICommandGenerator {
                     // Log error or handle it, for now we just skip this card's abilities
                     continue;
                 }
-                // ========================= END OF MODIFIED SECTION =========================
             }
         }
 
@@ -144,38 +130,5 @@ public class AICommandGenerator {
         commands.add(new EndTurnCommand(game.getGameId(), aiPlayerId));
 
         return commands;
-    }
-
-    /**
-     * A helper method to check if an ability's conditions are met before generating
-     * a command.
-     * This uses a non-public method from the EffectProcessor via reflection for a
-     * clean implementation,
-     * or could be implemented by duplicating the checkCondition logic. For this
-     * fix, we assume access or duplication.
-     * Here, we'll create a public facade for the private method to illustrate.
-     */
-    @SuppressWarnings("unchecked")
-    private static boolean checkAbilityCondition(Game game, Map<String, Object> effectConfig, CardInstance source,
-            Player owner, Map<String, Object> context) {
-        if (!effectConfig.containsKey("condition")) {
-            return true; // No condition means it's always valid to try
-        }
-
-        // This is a simplified reimplementation of the private checkCondition logic
-        // from EffectProcessor
-        // to avoid complex reflection.
-        try {
-            java.lang.reflect.Method evaluateConditionMethod = EffectProcessor.class.getDeclaredMethod(
-                    "evaluateCondition", Game.class, Map.class, CardInstance.class, Player.class, Map.class);
-            evaluateConditionMethod.setAccessible(true);
-            return (boolean) evaluateConditionMethod.invoke(effectProcessor, game,
-                    (Map<String, Object>) effectConfig.get("condition"), source, owner, context);
-        } catch (Exception e) {
-            // If reflection fails, default to true to maintain old behavior rather than
-            // blocking all abilities.
-            // A proper implementation would have this logic be public in EffectProcessor.
-            return true;
-        }
     }
 }

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { produce } from 'immer';
 import { useGame } from '../context/GameContext'; // Import useGame hook
 import CanvasWrapper from './ThreeCanvas';
 import GameLog from './GameLog';
@@ -30,8 +29,8 @@ const GameScreen = () => {
     const {
         gameId,
         playerId,
-        initialGameState,
-        eventBatch,
+        initialGameState, // This is now the LATEST game state
+        eventBatch, // This is now just the list of events from the last update
         commandError,
         clearCommandError
     } = useGame();
@@ -87,42 +86,45 @@ const GameScreen = () => {
         return () => log('GameScreen unmounted.', null, 'INFO');
     }, [gameId, playerId]);
 
+    // This is the key change. This effect now just syncs state and queues animations.
     useEffect(() => {
-        if (!eventBatch || eventBatch.length === 0) return;
+        if (!initialGameState) return;
 
-        log('Received event batch from server.', { count: eventBatch.length });
+        // 1. Directly update the state. No more `produce` or `applyEventToState`.
+        setLocalGameState(initialGameState);
+        log('Local state synchronized with authoritative server state.');
 
-        const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
-        if (turnStartEvent) {
-            setShowTurnBanner(true);
-            log('My turn started.', { turnNumber: turnStartEvent.newTurnNumber });
+        // 2. Queue visual effects based on the events that came with the new state.
+        if (eventBatch && eventBatch.length > 0) {
+            const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
+            if (turnStartEvent) {
+                setShowTurnBanner(true);
+                log('My turn started.', { turnNumber: turnStartEvent.newTurnNumber });
+            }
+
+            const visualEffects = eventBatch
+                .map(event => translateEventToEffect(initialGameState, event, playerId)) // Pass current state for context
+                .flat() // Handle cases where an event creates multiple effects
+                .filter(Boolean); // Filter out nulls
+
+            setEffectQueue(prev => [...prev, ...visualEffects]);
         }
-
-        const visualEffects = [];
-        const nextState = produce(localGameState, draftState => {
-            eventBatch.forEach(event => {
-                applyEventToState(draftState, event, playerId, findCardInfo);
-                const effect = translateEventToEffect(draftState, event, playerId);
-                if (effect) {
-                    if (Array.isArray(effect)) visualEffects.push(...effect);
-                    else visualEffects.push(effect);
-                }
-            });
-        });
-
-        setLocalGameState(nextState);
-        setEffectQueue(prev => [...prev, ...visualEffects]);
-    }, [eventBatch, playerId, findCardInfo]);
+    }, [initialGameState, eventBatch, playerId]); // Depend on the state object from context
 
     const handleEffectComplete = useCallback(() => {
         if (currentEffect && currentEffect.isCleanupRequired) {
-            setLocalGameState(produce(draft => {
-                const info = findCardInfo(currentEffect.targetId, draft);
-                if (info) {
-                    const ownerKey = info.ownerId === draft.player1State.playerId ? 'player1State' : 'player2State';
-                    draft[ownerKey].field[info.index] = null;
+            // Find the card in the *latest* state and remove it if the server has already done so
+            setLocalGameState(prevState => {
+                const latestCardInfo = findCardInfo(currentEffect.targetId, prevState);
+                if (latestCardInfo?.card?.isDying) {
+                    // Create a new state object to trigger re-render
+                    const nextState = JSON.parse(JSON.stringify(prevState));
+                    const ownerKey = latestCardInfo.ownerId === nextState.player1State.playerId ? 'player1State' : 'player2State';
+                    nextState[ownerKey].field[latestCardInfo.index] = null;
+                    return nextState;
                 }
-            }));
+                return prevState;
+            });
         }
         setCurrentEffect(null);
         isProcessingQueue.current = false;
@@ -242,115 +244,6 @@ const GameScreen = () => {
         </div>
     );
 };
-
-function applyEventToState(draftState, event, viewingPlayerId, findCardInfo) {
-    const getPlayer = (id) => (draftState.player1State.playerId === id ? draftState.player1State : draftState.player2State);
-    const resetStatChanges = (card) => { if (card) card.statChanges = {}; };
-
-    switch (event.eventType) {
-        case 'TURN_STARTED': {
-            draftState.currentPlayerId = event.newTurnPlayerId; draftState.turnNumber = event.newTurnNumber;
-            const player = getPlayer(event.newTurnPlayerId);
-            if (player) { player.attacksDeclaredThisTurn = 0; player.field.forEach(card => { if (card) { card.isExhausted = false; resetStatChanges(card); } }); }
-            break;
-        }
-        case 'PLAYER_DREW_CARD': {
-            const player = getPlayer(event.playerId); player.deckSize = event.newDeckSize; player.handSize = event.newHandSize;
-            if (event.playerId === viewingPlayerId && event.card) { player.hand.push(event.card); }
-            break;
-        }
-        case 'CARD_PLAYED': {
-            const player = getPlayer(event.playerId);
-            player.handSize = event.newHandSize;
-            if (player.playerId === viewingPlayerId && event.fromHandIndex < player.hand.length) {
-                player.hand.splice(event.fromHandIndex, 1);
-            }
-            player.field[event.toFieldSlot] = {
-                ...event.card,
-                isExhausted: true,
-                statChanges: {}
-            };
-            break;
-        }
-        case 'ATTACK_DECLARED': { const info = findCardInfo(event.attackerInstanceId, draftState); if (info) { info.owner.attacksDeclaredThisTurn += 1; info.card.isExhausted = true; } break; }
-        case 'COMBAT_DAMAGE_DEALT': { const info = findCardInfo(event.defenderInstanceId, draftState); if (info) { resetStatChanges(info.card); info.card.statChanges.life = true; info.card.currentLife = event.defenderLifeAfter; } break; }
-        case 'CARD_DESTROYED': {
-            const info = findCardInfo(event.card.instanceId, draftState);
-            if (info) {
-                info.card.isDying = true;
-                info.owner.discardPileSize += 1;
-            }
-            break;
-        }
-        case 'CARD_STAT_SET': {
-            const info = findCardInfo(event.targetInstanceId, draftState);
-            if (info) {
-                resetStatChanges(info.card);
-                if (event.stat === 'ATK' && info.card.currentAttack !== event.value) { info.card.statChanges.attack = true; info.card.currentAttack = event.value; info.card.baseAttack = event.value; }
-                if (event.stat === 'DEF' && info.card.currentDefense !== event.value) { info.card.statChanges.defense = true; info.card.currentDefense = event.value; info.card.baseDefense = event.value; }
-                if (event.stat === 'MAX_LIFE' && info.card.baseLife !== event.value) { info.card.statChanges.life = true; info.card.baseLife = event.value; }
-                if (event.stat === 'LIFE' && info.card.currentLife !== event.value) { info.card.statChanges.life = true; info.card.currentLife = event.value; }
-            }
-            break;
-        }
-        case 'CARD_STATS_CHANGED': {
-            const info = findCardInfo(event.targetInstanceId, draftState);
-            if (info) {
-                resetStatChanges(info.card);
-                if (info.card.currentAttack !== event.newAttack) info.card.statChanges.attack = true;
-                if (info.card.currentDefense !== event.newDefense) info.card.statChanges.defense = true;
-                info.card.currentAttack = event.newAttack; info.card.currentDefense = event.newDefense;
-            }
-            break;
-        }
-        case 'CARD_BUFFED': case 'CARD_DEBUFFED': {
-            const info = findCardInfo(event.targetInstanceId, draftState);
-            if (info) {
-                resetStatChanges(info.card);
-                if (event.stat.toUpperCase() === "ATK") { info.card.statChanges.attack = true; info.card.currentAttack = event.statAfter; }
-                if (event.stat.toUpperCase() === "DEF") { info.card.statChanges.defense = true; info.card.currentDefense = event.statAfter; }
-                if (event.stat.toUpperCase() === "MAX_LIFE") { info.card.statChanges.life = true; info.card.currentLife = event.statAfter; }
-            }
-            break;
-        }
-        case 'CARD_HEALED': { const info = findCardInfo(event.targetInstanceId, draftState); if (info) { resetStatChanges(info.card); info.card.statChanges.life = true; info.card.currentLife = event.lifeAfter; } break; }
-        case 'CARD_FLAG_CHANGED': {
-            const info = findCardInfo(event.targetInstanceId, draftState);
-            if (info) { if (!info.card.effectFlags) info.card.effectFlags = {}; if (event.value === null) delete info.card.effectFlags[event.flagName]; else info.card.effectFlags[event.flagName] = event.value; }
-            break;
-        }
-        case 'CARD_TRANSFORMED': {
-            const info = findCardInfo(event.originalInstanceId, draftState);
-            if (info) {
-                const newCard = {
-                    ...event.newCardDto, // This carries over all server-authoritative state
-                    isExhausted: true,
-                    statChanges: {},
-                };
-                info.owner.field[info.index] = newCard;
-            }
-            break;
-        }
-        case 'CARD_VANISHED': {
-            const info = findCardInfo(event.instanceId, draftState);
-            if (info) {
-                info.card.isVanishing = true; // Set a flag instead of removing
-            }
-            break;
-        }
-        case 'CARD_REAPPEARED': {
-            const owner = getPlayer(event.ownerPlayerId);
-            if (owner) {
-                owner.field[event.toFieldSlot] = {
-                    ...event.card,
-                    isExhausted: true,
-                    statChanges: {},
-                };
-            }
-            break;
-        }
-    }
-}
 
 function translateEventToEffect(currentState, event, viewingPlayerId) {
     if (!event) return null;
