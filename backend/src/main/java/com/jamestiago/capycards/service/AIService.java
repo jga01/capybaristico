@@ -108,29 +108,26 @@ public class AIService {
     private GameCommand decideNextSingleMove(Game game, String aiPlayerId) {
         List<GameCommand> possibleCommands = AICommandGenerator.generateValidCommands(game, aiPlayerId);
         GameCommand bestCommand = null;
-        // Start with the score of the current board. Any move must be better than this.
-        double bestScore = BoardEvaluator.evaluate(game, aiPlayerId);
 
-        // The default action is to always end the turn if no better move is found.
+        double bestScore = -Double.MAX_VALUE;
+
         bestCommand = new EndTurnCommand(game.getGameId(), aiPlayerId);
 
+        double endTurnScore = BoardEvaluator.evaluate(game, aiPlayerId);
+        bestScore = endTurnScore;
+
         for (GameCommand command : possibleCommands) {
-            // We evaluate EndTurn separately. If no other move is better, this will be the
-            // default.
             if (command instanceof EndTurnCommand) {
                 continue;
             }
 
             Game simulationGame = new Game(game);
             List<GameEvent> events = gameEngine.processCommand(simulationGame, command);
-            for (GameEvent e : events) {
-                simulationGame.apply(e);
-            }
 
             double scoreAfterMove = BoardEvaluator.evaluate(simulationGame, aiPlayerId);
             logger.trace("AI simulation: Command {} -> Score {}", command.getCommandType(), scoreAfterMove);
 
-            if (scoreAfterMove > bestScore) {
+            if (scoreAfterMove >= bestScore) {
                 bestScore = scoreAfterMove;
                 bestCommand = command;
             }

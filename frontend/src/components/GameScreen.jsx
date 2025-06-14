@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { produce } from 'immer';
 import { useGame } from '../context/GameContext'; // Import useGame hook
 import CanvasWrapper from './ThreeCanvas';
 import GameLog from './GameLog';
@@ -29,11 +30,13 @@ const GameScreen = () => {
     const {
         gameId,
         playerId,
-        initialGameState, // This is now the LATEST game state
-        eventBatch, // This is now just the list of events from the last update
+        initialGameState,
+        eventBatch,
         commandError,
         clearCommandError
     } = useGame();
+
+    const isInputLockedRef = useRef(false);
 
     const [localGameState, setLocalGameState] = useState(initialGameState);
     const [selectedHandCardInfo, setSelectedHandCardInfo] = useState(null);
@@ -86,15 +89,11 @@ const GameScreen = () => {
         return () => log('GameScreen unmounted.', null, 'INFO');
     }, [gameId, playerId]);
 
-    // This is the key change. This effect now just syncs state and queues animations.
     useEffect(() => {
         if (!initialGameState) return;
-
-        // 1. Directly update the state. No more `produce` or `applyEventToState`.
         setLocalGameState(initialGameState);
         log('Local state synchronized with authoritative server state.');
 
-        // 2. Queue visual effects based on the events that came with the new state.
         if (eventBatch && eventBatch.length > 0) {
             const turnStartEvent = eventBatch.find(e => e.eventType === 'TURN_STARTED' && e.newTurnPlayerId === playerId);
             if (turnStartEvent) {
@@ -103,36 +102,33 @@ const GameScreen = () => {
             }
 
             const visualEffects = eventBatch
-                .map(event => translateEventToEffect(initialGameState, event, playerId)) // Pass current state for context
-                .flat() // Handle cases where an event creates multiple effects
-                .filter(Boolean); // Filter out nulls
+                .map(event => translateEventToEffect(initialGameState, event, playerId))
+                .flat()
+                .filter(Boolean);
 
             setEffectQueue(prev => [...prev, ...visualEffects]);
         }
-    }, [initialGameState, eventBatch, playerId]); // Depend on the state object from context
+    }, [initialGameState, eventBatch, playerId]);
 
     const handleEffectComplete = useCallback(() => {
         if (currentEffect && currentEffect.isCleanupRequired) {
-            // Find the card in the *latest* state and remove it if the server has already done so
-            setLocalGameState(prevState => {
-                const latestCardInfo = findCardInfo(currentEffect.targetId, prevState);
-                if (latestCardInfo?.card?.isDying) {
-                    // Create a new state object to trigger re-render
-                    const nextState = JSON.parse(JSON.stringify(prevState));
-                    const ownerKey = latestCardInfo.ownerId === nextState.player1State.playerId ? 'player1State' : 'player2State';
-                    nextState[ownerKey].field[latestCardInfo.index] = null;
-                    return nextState;
+            setLocalGameState(produce(draft => {
+                const info = findCardInfo(currentEffect.targetId, draft);
+                if (info) {
+                    const ownerKey = info.ownerId === draft.player1State.playerId ? 'player1State' : 'player2State';
+                    draft[ownerKey].field[info.index] = null;
                 }
-                return prevState;
-            });
+            }));
         }
         setCurrentEffect(null);
         isProcessingQueue.current = false;
+        isInputLockedRef.current = false;
     }, [currentEffect, findCardInfo]);
 
     useEffect(() => {
         if (!isProcessingQueue.current && effectQueue.length > 0) {
             isProcessingQueue.current = true;
+            isInputLockedRef.current = true;
             const nextEffect = effectQueue[0];
 
             setCurrentEffect(nextEffect);
@@ -142,14 +138,16 @@ const GameScreen = () => {
                 setAttackAnimation({ attackerId: nextEffect.sourceId, defenderId: nextEffect.targetId });
                 setTimeout(() => {
                     setAttackAnimation(null);
-                    handleEffectComplete();
+                    isProcessingQueue.current = false; // Allow next effect to play
                 }, 1000);
             }
+        } else if (effectQueue.length === 0) {
+            isInputLockedRef.current = false;
         }
     }, [effectQueue, handleEffectComplete]);
 
 
-    const isInputLocked = () => isProcessingQueue.current || !!attackAnimation;
+    const isInputLocked = () => isInputLockedRef.current || !!attackAnimation;
 
     const clearSelections = useCallback(() => {
         setFeedbackMessage(isMyTurn ? "Your turn." : "Opponent's turn.");
@@ -171,9 +169,10 @@ const GameScreen = () => {
 
     const handleEmptyFieldSlotClick = (ownerPlayerId, fieldSlotIndex) => {
         if (isInputLocked() || !isMyTurn || !selectedHandCardInfo || ownerPlayerId !== playerId) return;
+        isInputLockedRef.current = true;
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
         const handCardIndex = viewingPlayer.hand.findIndex(c => c.instanceId === selectedHandCardInfo.instanceId);
-        if (handCardIndex === -1) { setFeedbackMessage("Error: Card not found in hand."); clearSelections(); return; }
+        if (handCardIndex === -1) { setFeedbackMessage("Error: Card not found in hand."); clearSelections(); isInputLockedRef.current = false; return; }
         emitGameCommand({ gameId, playerId, commandType: 'PLAY_CARD', handCardIndex, targetFieldSlot: fieldSlotIndex });
         clearSelections();
     };
@@ -184,8 +183,9 @@ const GameScreen = () => {
         const viewingPlayer = localGameState.player1State.playerId === playerId ? localGameState.player1State : localGameState.player2State;
 
         if (isTargetingMode) {
+            isInputLockedRef.current = true;
             if (selectedAttackerInfo) {
-                if (isOwnCard) { setFeedbackMessage("Cannot attack your own card."); return; }
+                if (isOwnCard) { setFeedbackMessage("Cannot attack your own card."); isInputLockedRef.current = false; return; }
                 emitGameCommand({ gameId, playerId, commandType: 'ATTACK', attackerFieldIndex: selectedAttackerInfo.fieldIndex, defenderFieldIndex: fieldIndex });
             } else if (selectedAbilitySourceInfo && selectedAbilityOption) {
                 emitGameCommand({ gameId, playerId, commandType: 'ACTIVATE_ABILITY', sourceCardInstanceId: selectedAbilitySourceInfo.instanceId, targetCardInstanceId: cardData.instanceId, abilityOptionIndex: selectedAbilityOption.index });
@@ -210,10 +210,20 @@ const GameScreen = () => {
         setSelectedAttackerInfo(null); setSelectedAbilityOption(abilityOpt);
         const requiresTarget = abilityOpt.requiresTarget && abilityOpt.requiresTarget !== "NONE";
         if (requiresTarget) { setIsTargetingMode(true); setFeedbackMessage(`Ability '${abilityOpt.name}' requires a target.`); }
-        else { emitGameCommand({ gameId, playerId, commandType: 'ACTIVATE_ABILITY', sourceCardInstanceId: selectedAbilitySourceInfo.instanceId, abilityOptionIndex: abilityOpt.index }); clearSelections(); }
+        else {
+            isInputLockedRef.current = true;
+            emitGameCommand({ gameId, playerId, commandType: 'ACTIVATE_ABILITY', sourceCardInstanceId: selectedAbilitySourceInfo.instanceId, abilityOptionIndex: abilityOpt.index });
+            clearSelections();
+        }
     };
 
-    const handleEndTurn = () => { if (!isInputLocked() && isMyTurn) { clearSelections(); emitGameCommand({ gameId, playerId, commandType: 'END_TURN' }); } };
+    const handleEndTurn = () => {
+        if (!isInputLocked() && isMyTurn) {
+            isInputLockedRef.current = true;
+            clearSelections();
+            emitGameCommand({ gameId, playerId, commandType: 'END_TURN' });
+        }
+    };
 
     useEffect(() => { if (showTurnBanner) { const timer = setTimeout(() => setShowTurnBanner(false), 2500); return () => clearTimeout(timer); } }, [showTurnBanner]);
 

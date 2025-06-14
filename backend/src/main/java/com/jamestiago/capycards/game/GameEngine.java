@@ -1,5 +1,3 @@
-// backend/src/main/java/com/jamestiago/capycards/game/GameEngine.java
-
 package com.jamestiago.capycards.game;
 
 import com.jamestiago.capycards.game.commands.*;
@@ -14,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -48,46 +47,84 @@ public class GameEngine {
             return List.of();
         }
 
-        CommandResult result = switch (command) {
-            case PlayCardCommand cmd -> handlePlayCard(game, cmd);
-            case AttackCommand cmd -> handleAttack(game, cmd);
-            case EndTurnCommand cmd -> handleEndTurn(game, cmd);
-            case ActivateAbilityCommand cmd -> handleActivateAbility(game, cmd);
-            case GameOverCommand cmd -> new CommandResult(List.of(
-                    new GameOverEvent(game.getGameId(), game.getTurnNumber(), cmd.winnerPlayerId, cmd.reason)),
-                    game);
+        // --- START OF MODIFICATION ---
+        List<GameEvent> allEvents = new ArrayList<>();
+        Game tempGame = new Game(game); // Create one simulation game for the whole process
+
+        // 1. Process the initial command
+        List<GameEvent> commandEvents = switch (command) {
+            case PlayCardCommand cmd -> handlePlayCard(tempGame, cmd);
+            case AttackCommand cmd -> handleAttack(tempGame, cmd);
+            case EndTurnCommand cmd -> handleEndTurn(tempGame, cmd);
+            case ActivateAbilityCommand cmd -> handleActivateAbility(tempGame, cmd);
+            case GameOverCommand cmd -> List.of(
+                    new GameOverEvent(game.getGameId(), game.getTurnNumber(), cmd.winnerPlayerId, cmd.reason));
             default -> {
                 logger.warn("No handler found for command type: {}", command.getCommandType());
-                yield new CommandResult(new ArrayList<>(), game);
+                yield new ArrayList<GameEvent>();
             }
         };
 
-        Game gameAfterAction = new Game(result.simulatedGame());
-        List<GameEvent> allEvents = new ArrayList<>(result.events());
-
-        List<GameEvent> auraEvents = processAuras(gameAfterAction);
-        allEvents.addAll(auraEvents);
-
-        List<GameEvent> deathEvents = checkForDeaths(gameAfterAction);
-        allEvents.addAll(deathEvents);
-
-        if (!deathEvents.isEmpty()) {
-            logger.trace("[{}] Deaths occurred. Recalculating auras.", game.getGameId());
-            List<GameEvent> postDeathAuraEvents = processAuras(gameAfterAction);
-            allEvents.addAll(postDeathAuraEvents);
-
-            List<GameEvent> finalDeathCheckEvents = checkForDeaths(gameAfterAction);
-            if (!finalDeathCheckEvents.isEmpty()) {
-                logger.trace("[{}] Additional deaths found after post-death aura update. Adding events.",
-                        game.getGameId());
-                allEvents.addAll(finalDeathCheckEvents);
-            }
-        }
+        // 2. Apply initial events and start the resolution loop
+        allEvents.addAll(applyAndResolve(tempGame, commandEvents));
 
         logger.trace("[{}] Command {} resulted in {} total events.", game.getGameId(), command.getCommandType(),
                 allEvents.size());
         return allEvents;
     }
+
+    /**
+     * New central loop. Applies a batch of events, then checks for auras and
+     * deaths,
+     * adding any new events to the queue and repeating until no new events are
+     * generated.
+     */
+    private List<GameEvent> applyAndResolve(Game simulatedGame, List<GameEvent> newEvents) {
+        List<GameEvent> resolvedEvents = new ArrayList<>(newEvents);
+        List<GameEvent> eventsToProcess = new ArrayList<>(newEvents);
+
+        int maxIterations = 10; // Safety break for catastrophic loops
+        int currentIteration = 0;
+
+        while (!eventsToProcess.isEmpty() && currentIteration < maxIterations) {
+            currentIteration++;
+
+            // Apply the latest batch of events
+            for (GameEvent event : eventsToProcess) {
+                simulatedGame.apply(event);
+            }
+
+            // Clear the queue for the next wave
+            eventsToProcess.clear();
+
+            // Check for state-based changes (Auras, Deaths)
+            List<GameEvent> auraEvents = processAuras(simulatedGame);
+            if (!auraEvents.isEmpty()) {
+                resolvedEvents.addAll(auraEvents);
+                eventsToProcess.addAll(auraEvents);
+                // If auras changed things, we need to re-apply and re-check from the top
+                continue;
+            }
+
+            List<GameEvent> deathEvents = checkForDeaths(simulatedGame);
+            if (!deathEvents.isEmpty()) {
+                resolvedEvents.addAll(deathEvents);
+                eventsToProcess.addAll(deathEvents);
+                // Deaths are significant, loop again to check for resulting auras/triggers
+                continue;
+            }
+        }
+
+        if (currentIteration >= maxIterations) {
+            logger.error("[{}] Maximum resolution depth reached. Game may be in an unstable state. Forcing resolution.",
+                    simulatedGame.getGameId());
+            resolvedEvents.add(new GameLogMessageEvent(simulatedGame.getGameId(), simulatedGame.getTurnNumber(),
+                    "ERROR: Unstable effect loop detected.", "ERROR"));
+        }
+
+        return resolvedEvents;
+    }
+    // --- END OF MODIFICATION ---
 
     private List<GameEvent> processDamageTriggers(CardInstance attacker, CardInstance defender, int damageDealt,
             Game simulatedGame) {
@@ -109,10 +146,7 @@ public class GameEngine {
                     List<GameEvent> onAnyDamageEvents = effectProcessor.processTrigger(simulatedGame,
                             EffectTrigger.ON_DAMAGE_TAKEN_OF_ANY, observerCard,
                             simulatedGame.getOwnerOfCardInstance(observerCard), context);
-                    for (GameEvent e : onAnyDamageEvents) {
-                        subsequentEvents.add(e);
-                        simulatedGame.apply(e);
-                    }
+                    subsequentEvents.addAll(onAnyDamageEvents);
                 }
             }
         }
@@ -127,21 +161,277 @@ public class GameEngine {
 
         List<GameEvent> onDealtEvents = effectProcessor.processTrigger(simulatedGame, EffectTrigger.ON_DAMAGE_DEALT,
                 attacker, attackerOwner, damageContext);
-        for (GameEvent e : onDealtEvents) {
-            subsequentEvents.add(e);
-            simulatedGame.apply(e);
-        }
+        subsequentEvents.addAll(onDealtEvents);
 
         List<GameEvent> onTakenEvents = effectProcessor.processTrigger(simulatedGame, EffectTrigger.ON_DAMAGE_TAKEN,
                 defender, defenderOwner, damageContext);
-        for (GameEvent e : onTakenEvents) {
-            subsequentEvents.add(e);
-            simulatedGame.apply(e);
-        }
+        subsequentEvents.addAll(onTakenEvents);
 
         return subsequentEvents;
     }
 
+    private List<GameEvent> handlePlayCard(Game tempGame, PlayCardCommand cmd) {
+        Player player = tempGame.getPlayerById(cmd.playerId);
+        List<GameEvent> events = new ArrayList<>();
+        if (player == null || cmd.handCardIndex < 0 || cmd.handCardIndex >= player.getHand().size()
+                || cmd.targetFieldSlot < 0 || cmd.targetFieldSlot >= Player.MAX_FIELD_SIZE
+                || player.getField().get(cmd.targetFieldSlot) != null) {
+            return events;
+        }
+
+        CardInstance cardToPlay = player.getHand().get(cmd.handCardIndex);
+        if (!cardToPlay.getDefinition().isDirectlyPlayable()) {
+            logger.warn("Player {} attempted to illegally play card '{}' from hand.", cmd.playerId,
+                    cardToPlay.getDefinition().getName());
+            return events;
+        }
+
+        CardPlayedEvent playedEvent = new CardPlayedEvent(
+                tempGame.getGameId(),
+                tempGame.getTurnNumber(),
+                cmd.playerId,
+                GameStateMapper.mapCardInstanceToDTO(cardToPlay),
+                cmd.handCardIndex,
+                cmd.targetFieldSlot,
+                player.getHand().size() - 1);
+        events.add(playedEvent);
+        tempGame.apply(playedEvent); // Apply immediately to get the card on the board for triggers
+
+        CardInstance cardInTempState = tempGame.findCardInstanceFromAnyField(cardToPlay.getInstanceId());
+        if (cardInTempState != null) {
+            Map<String, Object> context = new HashMap<>();
+            context.put("eventTarget", cardInTempState);
+            events.addAll(
+                    effectProcessor.processTrigger(tempGame, EffectTrigger.ON_PLAY, cardInTempState, player, context));
+        }
+
+        return events;
+    }
+
+    private List<GameEvent> handleAttack(Game tempGame, AttackCommand cmd) {
+        List<GameEvent> events = new ArrayList<>();
+        // Removed CommandResult return type
+
+        Player attackerPlayer = tempGame.getPlayerById(cmd.playerId);
+        Player defenderPlayer = tempGame.getOpponent(attackerPlayer);
+
+        if (attackerPlayer == null || defenderPlayer == null || cmd.attackerFieldIndex < 0
+                || cmd.attackerFieldIndex >= Player.MAX_FIELD_SIZE || cmd.defenderFieldIndex < 0
+                || cmd.defenderFieldIndex >= Player.MAX_FIELD_SIZE) {
+            return events;
+        }
+
+        CardInstance attacker = attackerPlayer.getField().get(cmd.attackerFieldIndex);
+        CardInstance defender = defenderPlayer.getField().get(cmd.defenderFieldIndex);
+
+        boolean hasAttackAgainFlag = attacker != null && attacker.getBooleanEffectFlag("canAttackAgainThisTurn");
+
+        if (attacker == null || defender == null || (!hasAttackAgainFlag && attacker.isExhausted())
+                || (!hasAttackAgainFlag && !attackerPlayer.canDeclareAttack())) {
+            return events;
+        }
+
+        // The rest of this method is simplified to just generate events, not apply
+        // them.
+        // The new applyAndResolve loop will handle application.
+
+        if (hasAttackAgainFlag) {
+            events.add(new CardFlagChangedEvent(tempGame.getGameId(), tempGame.getTurnNumber(),
+                    attacker.getInstanceId(), "canAttackAgainThisTurn", null, "TURN"));
+        }
+
+        events.add(new AttackDeclaredEvent(tempGame.getGameId(), tempGame.getTurnNumber(), attackerPlayer.getPlayerId(),
+                attacker.getInstanceId(), attacker.getDefinition().getName(), defender.getInstanceId(),
+                defender.getDefinition().getName()));
+
+        Map<String, Object> defendContext = new HashMap<>();
+        defendContext.put("eventSource", attacker);
+        events.addAll(effectProcessor.processTrigger(tempGame, EffectTrigger.ON_DEFEND, defender, defenderPlayer,
+                defendContext));
+
+        Map<String, Object> attackDeclareContext = new HashMap<>();
+        attackDeclareContext.put("eventTarget", defender);
+        events.addAll(effectProcessor.processTrigger(tempGame, EffectTrigger.ON_ATTACK_DECLARE, attacker,
+                attackerPlayer, attackDeclareContext));
+
+        // Create a temporary game to check the state after these initial triggers
+        Game gameAfterTriggers = new Game(tempGame);
+        for (GameEvent e : events)
+            gameAfterTriggers.apply(e);
+
+        CardInstance attackerAfterEffect = gameAfterTriggers.findCardInstanceFromAnyField(attacker.getInstanceId());
+        CardInstance defenderInSim = gameAfterTriggers.findCardInstanceFromAnyField(defender.getInstanceId());
+
+        if (attackerAfterEffect == null || attackerAfterEffect.isDestroyed() || defenderInSim == null
+                || defenderInSim.isDestroyed()) {
+            return events; // Attack fizzles
+        }
+
+        int defenderLifeBefore = defenderInSim.getCurrentLife();
+        int attackPower = attackerAfterEffect.getCurrentAttack();
+        if (attackerAfterEffect.getBooleanEffectFlag("double_damage_this_attack")) {
+            attackPower *= 2;
+            events.add(new CardFlagChangedEvent(tempGame.getGameId(), tempGame.getTurnNumber(),
+                    attackerAfterEffect.getInstanceId(), "double_damage_this_attack", null, "PERMANENT"));
+        }
+
+        int damageToDeal = effectProcessor.calculateFinalDamage(gameAfterTriggers, attackPower, attackerAfterEffect,
+                defenderInSim, "ATTACK");
+
+        events.add(new CombatDamageDealtEvent(tempGame.getGameId(), tempGame.getTurnNumber(),
+                attackerAfterEffect.getInstanceId(), defenderInSim.getInstanceId(), "ATTACK", attackPower, damageToDeal,
+                defenderLifeBefore, Math.max(0, defenderInSim.getCurrentLife() - damageToDeal)));
+
+        // Process damage triggers based on this event
+        List<GameEvent> subsequentEvents = processDamageTriggers(attackerAfterEffect, defenderInSim, damageToDeal,
+                gameAfterTriggers);
+        events.addAll(subsequentEvents);
+
+        return events;
+    }
+
+    private List<GameEvent> handleActivateAbility(Game tempGame, ActivateAbilityCommand cmd) {
+        List<GameEvent> events = new ArrayList<>();
+        Player player = tempGame.getPlayerById(cmd.playerId);
+        CardInstance sourceCard = tempGame.findCardInstanceFromAnyField(cmd.sourceCardInstanceId);
+        if (player == null || sourceCard == null)
+            return events;
+
+        events.add(new AbilityActivatedEvent(tempGame.getGameId(), tempGame.getTurnNumber(), cmd.sourceCardInstanceId,
+                cmd.targetCardInstanceId, cmd.abilityOptionIndex));
+
+        Map<String, Object> context = new HashMap<>();
+        context.put("targetCardInstanceId", cmd.targetCardInstanceId);
+        context.put("abilityOptionIndex", cmd.abilityOptionIndex);
+        events.addAll(effectProcessor.processTrigger(tempGame, EffectTrigger.ACTIVATED, sourceCard, player, context));
+
+        return events;
+    }
+
+    private List<GameEvent> handleEndTurn(Game tempGame, EndTurnCommand cmd) {
+        List<GameEvent> events = new ArrayList<>();
+        Player endingPlayer = tempGame.getPlayerById(cmd.playerId);
+        if (endingPlayer == null || tempGame.getCurrentPlayer() != endingPlayer)
+            return events;
+
+        // End of turn triggers for the current player
+        for (CardInstance card : endingPlayer.getField()) {
+            if (card != null) {
+                events.addAll(effectProcessor.processTrigger(tempGame, EffectTrigger.END_OF_TURN_SELF, card,
+                        endingPlayer, new HashMap<>()));
+            }
+        }
+
+        events.add(new TurnEndedEvent(tempGame.getGameId(), tempGame.getTurnNumber(), endingPlayer.getPlayerId()));
+
+        Player nextPlayer = tempGame.getOpponent(endingPlayer);
+        int currentTurnNumber = tempGame.getTurnNumber();
+
+        Player.DrawOutcome outcome = nextPlayer.drawCardWithOutcome();
+        switch (outcome.result()) {
+            case DECK_EMPTY:
+                String reason = nextPlayer.getDisplayName() + " cannot draw a card and has lost.";
+                events.add(new GameOverEvent(tempGame.getGameId(), currentTurnNumber + 1, endingPlayer.getPlayerId(),
+                        reason));
+                return events; // Game is over, no more events
+            case SUCCESS:
+                events.add(new TurnStartedEvent(tempGame.getGameId(), currentTurnNumber, nextPlayer.getPlayerId()));
+                events.add(new PlayerDrewCardEvent(
+                        tempGame.getGameId(), currentTurnNumber + 1, nextPlayer.getPlayerId(),
+                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
+                        nextPlayer.getHand().size(), nextPlayer.getDeck().size()));
+                break;
+            case HAND_FULL:
+                events.add(new TurnStartedEvent(tempGame.getGameId(), currentTurnNumber, nextPlayer.getPlayerId()));
+                events.add(new PlayerOverdrewCardEvent(
+                        tempGame.getGameId(), currentTurnNumber + 1, nextPlayer.getPlayerId(),
+                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
+                        nextPlayer.getDeck().size(), nextPlayer.getDiscardPile().size()));
+                break;
+        }
+
+        // Apply these events to a new temp state to correctly process start-of-turn
+        // effects
+        Game gameAtTurnStart = new Game(tempGame);
+        for (GameEvent e : events)
+            gameAtTurnStart.apply(e);
+
+        // Start of turn triggers for the new player
+        events.addAll(processScheduledActions(gameAtTurnStart, nextPlayer));
+        for (CardInstance card : nextPlayer.getField()) {
+            if (card != null) {
+                events.addAll(effectProcessor.processTrigger(gameAtTurnStart, EffectTrigger.START_OF_TURN_SELF, card,
+                        nextPlayer, new HashMap<>()));
+            }
+        }
+        return events;
+    }
+
+    private boolean isCardDead(CardInstance card) {
+        if (card.getBooleanEffectFlag("can_survive_lethal")) {
+            return (card.getCurrentLife() + card.getCurrentDefense()) <= 0;
+        }
+        return card.isDestroyed();
+    }
+
+    // This now only checks for deaths and generates triggers. It doesn't loop
+    // internally.
+    private List<GameEvent> checkForDeaths(Game simulatedGame) {
+        List<GameEvent> deathEvents = new ArrayList<>();
+        List<CardInstance> cardsToCheck = Stream.concat(
+                simulatedGame.getPlayer1().getFieldInternal().stream(),
+                simulatedGame.getPlayer2().getFieldInternal().stream())
+                .filter(c -> c != null && isCardDead(c))
+                .collect(Collectors.toList());
+
+        for (CardInstance cardInSim : cardsToCheck) {
+            Player owner = simulatedGame.getOwnerOfCardInstance(cardInSim);
+            if (owner == null)
+                continue;
+
+            // This card is marked for death. Process its ON_DEATH triggers.
+            Map<String, Object> deathContext = new HashMap<>();
+            deathContext.put("eventTarget", cardInSim);
+            if (cardInSim.getLastDamageSourceCard() != null) {
+                deathContext.put("eventSource", simulatedGame
+                        .findCardInstanceFromAnyField(cardInSim.getLastDamageSourceCard().getInstanceId()));
+            }
+            deathEvents.addAll(effectProcessor.processTrigger(simulatedGame, EffectTrigger.ON_DEATH, cardInSim, owner,
+                    deathContext));
+
+            // Check if the card saved itself
+            Game tempStateAfterSave = new Game(simulatedGame);
+            for (GameEvent e : deathEvents)
+                tempStateAfterSave.apply(e);
+            CardInstance cardAfterSave = tempStateAfterSave.findCardInstanceFromAnyField(cardInSim.getInstanceId());
+            if (cardAfterSave != null && !isCardDead(cardAfterSave)) {
+                logger.debug("Card {} saved itself from death with an ON_DEATH trigger.",
+                        cardAfterSave.getDefinition().getName());
+                continue; // It's alive, move to the next potential dead card
+            }
+
+            // It's still dead. Process ON_DEATH_OF_ANY for all other cards.
+            List<CardInstance> observers = new ArrayList<>();
+            observers.addAll(simulatedGame.getPlayer1().getFieldInternal().stream()
+                    .filter(c -> c != null && !c.getInstanceId().equals(cardInSim.getInstanceId())).toList());
+            observers.addAll(simulatedGame.getPlayer2().getFieldInternal().stream()
+                    .filter(c -> c != null && !c.getInstanceId().equals(cardInSim.getInstanceId())).toList());
+
+            for (CardInstance observerCard : observers) {
+                deathEvents.addAll(effectProcessor.processTrigger(simulatedGame, EffectTrigger.ON_DEATH_OF_ANY,
+                        observerCard, simulatedGame.getOwnerOfCardInstance(observerCard), deathContext));
+            }
+
+            // Finally, add the official destruction event
+            deathEvents.add(new CardDestroyedEvent(simulatedGame.getGameId(), simulatedGame.getTurnNumber(),
+                    GameStateMapper.mapCardInstanceToDTO(cardInSim), owner.getPlayerId()));
+        }
+
+        return deathEvents.stream().distinct().collect(Collectors.toList());
+    }
+
+    // (Other methods like `processAuras`, `processScheduledActions` remain the
+    // same)
     private List<GameEvent> processAuras(Game simulatedGame) {
         List<GameEvent> events = new ArrayList<>();
         List<CardInstance> allCardsOnField = new ArrayList<>();
@@ -217,368 +507,6 @@ public class GameEngine {
                 });
 
         return events;
-    }
-
-    private CommandResult handlePlayCard(Game game, PlayCardCommand cmd) {
-        Player player = game.getPlayerById(cmd.playerId);
-        if (player == null || cmd.handCardIndex < 0 || cmd.handCardIndex >= player.getHand().size()
-                || cmd.targetFieldSlot < 0 || cmd.targetFieldSlot >= Player.MAX_FIELD_SIZE
-                || player.getField().get(cmd.targetFieldSlot) != null) {
-            return new CommandResult(List.of(), game);
-        }
-
-        List<GameEvent> events = new ArrayList<>();
-        Game tempGame = new Game(game);
-
-        CardInstance cardToPlay = player.getHand().get(cmd.handCardIndex);
-
-        if (!cardToPlay.getDefinition().isDirectlyPlayable()) {
-            logger.warn("Player {} attempted to illegally play card '{}' from hand.", cmd.playerId,
-                    cardToPlay.getDefinition().getName());
-            return new CommandResult(List.of(), game);
-        }
-
-        CardPlayedEvent playedEvent = new CardPlayedEvent(
-                game.getGameId(),
-                game.getTurnNumber(),
-                cmd.playerId,
-                GameStateMapper.mapCardInstanceToDTO(cardToPlay),
-                cmd.handCardIndex,
-                cmd.targetFieldSlot,
-                player.getHand().size() - 1);
-        events.add(playedEvent);
-        tempGame.apply(playedEvent);
-
-        CardInstance cardInTempState = tempGame.findCardInstanceFromAnyField(cardToPlay.getInstanceId());
-        if (cardInTempState != null) {
-            Map<String, Object> context = new HashMap<>();
-            context.put("eventTarget", cardInTempState);
-            List<GameEvent> onPlayEvents = effectProcessor.processTrigger(tempGame, EffectTrigger.ON_PLAY,
-                    cardInTempState, tempGame.getPlayerById(cmd.playerId), context);
-            for (GameEvent e : onPlayEvents) {
-                events.add(e);
-                tempGame.apply(e);
-            }
-        }
-
-        return new CommandResult(events, tempGame);
-    }
-
-    private CommandResult handleAttack(Game game, AttackCommand cmd) {
-        List<GameEvent> events = new ArrayList<>();
-        Game tempGame = new Game(game);
-
-        Player attackerPlayer = tempGame.getPlayerById(cmd.playerId);
-        Player defenderPlayer = tempGame.getOpponent(attackerPlayer);
-
-        if (attackerPlayer == null || defenderPlayer == null)
-            return new CommandResult(List.of(), game);
-        if (cmd.attackerFieldIndex < 0 || cmd.attackerFieldIndex >= Player.MAX_FIELD_SIZE)
-            return new CommandResult(List.of(), game);
-        if (cmd.defenderFieldIndex < 0 || cmd.defenderFieldIndex >= Player.MAX_FIELD_SIZE)
-            return new CommandResult(List.of(), game);
-
-        CardInstance attacker = attackerPlayer.getField().get(cmd.attackerFieldIndex);
-        CardInstance defender = defenderPlayer.getField().get(cmd.defenderFieldIndex);
-
-        boolean hasAttackAgainFlag = attacker != null && attacker.getBooleanEffectFlag("canAttackAgainThisTurn");
-
-        if (attacker == null || defender == null || (!hasAttackAgainFlag && attacker.isExhausted())
-                || (!hasAttackAgainFlag && !attackerPlayer.canDeclareAttack())) {
-            return new CommandResult(List.of(), game);
-        }
-
-        if (hasAttackAgainFlag) {
-            CardFlagChangedEvent flagEvent = new CardFlagChangedEvent(game.getGameId(), game.getTurnNumber(),
-                    attacker.getInstanceId(), "canAttackAgainThisTurn", null, "TURN");
-            events.add(flagEvent);
-            tempGame.apply(flagEvent);
-        }
-
-        AttackDeclaredEvent declaredEvent = new AttackDeclaredEvent(game.getGameId(), game.getTurnNumber(),
-                attackerPlayer.getPlayerId(), attacker.getInstanceId(), attacker.getDefinition().getName(),
-                defender.getInstanceId(), defender.getDefinition().getName());
-        events.add(declaredEvent);
-        tempGame.apply(declaredEvent);
-
-        Map<String, Object> defendContext = new HashMap<>();
-        defendContext.put("eventSource", attacker);
-        List<GameEvent> onDefendEvents = effectProcessor.processTrigger(tempGame, EffectTrigger.ON_DEFEND, defender,
-                defenderPlayer, defendContext);
-        for (GameEvent e : onDefendEvents) {
-            events.add(e);
-            tempGame.apply(e);
-        }
-
-        Map<String, Object> attackDeclareContext = new HashMap<>();
-        attackDeclareContext.put("eventTarget", defender);
-        List<GameEvent> onAttackEvents = effectProcessor.processTrigger(tempGame, EffectTrigger.ON_ATTACK_DECLARE,
-                attacker, attackerPlayer, attackDeclareContext);
-        for (GameEvent e : onAttackEvents) {
-            events.add(e);
-            tempGame.apply(e);
-        }
-
-        CardInstance attackerAfterEffect = tempGame.findCardInstanceFromAnyField(attacker.getInstanceId());
-        if (attackerAfterEffect == null || attackerAfterEffect.isDestroyed()) {
-            logger.debug("Attacker {} was destroyed by its own ON_ATTACK_DECLARE effect. Aborting attack.",
-                    attacker.getDefinition().getName());
-            return new CommandResult(events, tempGame);
-        }
-
-        CardInstance defenderInSim = tempGame.findCardInstanceFromAnyField(defender.getInstanceId());
-        if (defenderInSim == null || defenderInSim.isDestroyed()) {
-            logger.debug("Defender {} was destroyed by an ON_DEFEND effect. Aborting attack.",
-                    defender.getDefinition().getName());
-            return new CommandResult(events, tempGame);
-        }
-
-        int defenderLifeBefore = defenderInSim.getCurrentLife();
-        int attackPower = attackerAfterEffect.getCurrentAttack();
-        if (attackerAfterEffect.getBooleanEffectFlag("double_damage_this_attack")) {
-            attackPower *= 2;
-            CardFlagChangedEvent flagEvent = new CardFlagChangedEvent(game.getGameId(), game.getTurnNumber(),
-                    attackerAfterEffect.getInstanceId(), "double_damage_this_attack", null, "PERMANENT");
-            events.add(flagEvent);
-            tempGame.apply(flagEvent);
-        }
-
-        int damageToDeal = effectProcessor.calculateFinalDamage(tempGame, attackPower, attackerAfterEffect,
-                defenderInSim, "ATTACK");
-
-        CombatDamageDealtEvent damageEvent = new CombatDamageDealtEvent(game.getGameId(), game.getTurnNumber(),
-                attackerAfterEffect.getInstanceId(), defenderInSim.getInstanceId(), "ATTACK", attackPower, damageToDeal,
-                defenderLifeBefore,
-                Math.max(0, defenderInSim.getCurrentLife() - damageToDeal));
-        events.add(damageEvent);
-        tempGame.apply(damageEvent);
-
-        List<GameEvent> subsequentEvents = processDamageTriggers(attackerAfterEffect, defenderInSim, damageToDeal,
-                tempGame);
-        events.addAll(subsequentEvents);
-
-        return new CommandResult(events, tempGame);
-    }
-
-    private CommandResult handleActivateAbility(Game game, ActivateAbilityCommand cmd) {
-        List<GameEvent> events = new ArrayList<>();
-        Game tempGame = new Game(game);
-
-        Player player = tempGame.getPlayerById(cmd.playerId);
-        CardInstance sourceCard = tempGame.findCardInstanceFromAnyField(cmd.sourceCardInstanceId);
-
-        if (player == null || sourceCard == null)
-            return new CommandResult(List.of(), game);
-
-        AbilityActivatedEvent activatedEvent = new AbilityActivatedEvent(game.getGameId(), game.getTurnNumber(),
-                cmd.sourceCardInstanceId, cmd.targetCardInstanceId, cmd.abilityOptionIndex);
-        events.add(activatedEvent);
-        tempGame.apply(activatedEvent);
-
-        Map<String, Object> context = new HashMap<>();
-        context.put("targetCardInstanceId", cmd.targetCardInstanceId);
-        context.put("abilityOptionIndex", cmd.abilityOptionIndex);
-
-        List<GameEvent> abilityEvents = effectProcessor.processTrigger(tempGame, EffectTrigger.ACTIVATED, sourceCard,
-                player, context);
-        for (GameEvent e : abilityEvents) {
-            events.add(e);
-            tempGame.apply(e);
-        }
-
-        return new CommandResult(events, tempGame);
-    }
-
-    private CommandResult handleEndTurn(Game game, EndTurnCommand cmd) {
-        List<GameEvent> events = new ArrayList<>();
-        Game tempGame = new Game(game);
-
-        Player endingPlayer = tempGame.getPlayerById(cmd.playerId);
-        if (endingPlayer == null || tempGame.getCurrentPlayer() != endingPlayer)
-            return new CommandResult(List.of(), game);
-
-        for (CardInstance card : endingPlayer.getField()) {
-            if (card != null) {
-                List<GameEvent> endOfTurnEvents = effectProcessor.processTrigger(tempGame,
-                        EffectTrigger.END_OF_TURN_SELF, card, endingPlayer, new HashMap<>());
-                for (GameEvent e : endOfTurnEvents) {
-                    events.add(e);
-                    tempGame.apply(e);
-                }
-            }
-        }
-
-        TurnEndedEvent endedEvent = new TurnEndedEvent(game.getGameId(), game.getTurnNumber(),
-                endingPlayer.getPlayerId());
-        events.add(endedEvent);
-        tempGame.apply(endedEvent);
-
-        Player nextPlayer = tempGame.getOpponent(endingPlayer);
-        int currentTurnNumber = game.getTurnNumber();
-
-        Player.DrawOutcome outcome = nextPlayer.drawCardWithOutcome();
-        switch (outcome.result()) {
-            case DECK_EMPTY:
-                String reason = nextPlayer.getDisplayName() + " cannot draw a card and has lost.";
-                GameOverEvent gameOverEvent = new GameOverEvent(game.getGameId(), currentTurnNumber + 1,
-                        endingPlayer.getPlayerId(), reason);
-                events.add(gameOverEvent);
-                tempGame.apply(gameOverEvent);
-                return new CommandResult(events, tempGame);
-            case SUCCESS:
-                TurnStartedEvent startedEvent = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
-                        nextPlayer.getPlayerId());
-                events.add(startedEvent);
-                tempGame.apply(startedEvent);
-
-                PlayerDrewCardEvent drewEvent = new PlayerDrewCardEvent(
-                        game.getGameId(), startedEvent.newTurnNumber, nextPlayer.getPlayerId(),
-                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
-                        nextPlayer.getHand().size(),
-                        nextPlayer.getDeck().size());
-                events.add(drewEvent);
-                // The state change was already handled by drawCardWithOutcome, so no
-                // tempGame.apply needed
-                break;
-            case HAND_FULL:
-                TurnStartedEvent startedEventHandFull = new TurnStartedEvent(game.getGameId(), currentTurnNumber,
-                        nextPlayer.getPlayerId());
-                events.add(startedEventHandFull);
-                tempGame.apply(startedEventHandFull);
-
-                PlayerOverdrewCardEvent overdrewEvent = new PlayerOverdrewCardEvent(
-                        game.getGameId(), startedEventHandFull.newTurnNumber, nextPlayer.getPlayerId(),
-                        GameStateMapper.mapCardInstanceToDTO(outcome.cardDrawn()),
-                        nextPlayer.getDeck().size(),
-                        nextPlayer.getDiscardPile().size());
-                events.add(overdrewEvent);
-                break;
-        }
-
-        TurnStartedEvent finalTurnStartEvent = (TurnStartedEvent) events.stream()
-                .filter(e -> e instanceof TurnStartedEvent)
-                .findFirst()
-                .orElse(null); // Should always be present
-
-        if (finalTurnStartEvent == null)
-            return new CommandResult(events, tempGame); // Should never happen
-
-        List<GameEvent> startOfTurnScheduledEvents = processScheduledActions(tempGame, nextPlayer);
-        for (GameEvent e : startOfTurnScheduledEvents) {
-            events.add(e);
-            tempGame.apply(e);
-        }
-
-        Player nextPlayerInSim = tempGame.getPlayerById(nextPlayer.getPlayerId());
-        for (CardInstance card : nextPlayerInSim.getField()) {
-            if (card != null) {
-                List<GameEvent> startOfTurnEvents = effectProcessor.processTrigger(tempGame,
-                        EffectTrigger.START_OF_TURN_SELF, card, nextPlayerInSim, new HashMap<>());
-                for (GameEvent e : startOfTurnEvents) {
-                    events.add(e);
-                    tempGame.apply(e);
-                }
-            }
-        }
-        return new CommandResult(events, tempGame);
-    }
-
-    private boolean isCardDead(CardInstance card) {
-        if (card.getBooleanEffectFlag("can_survive_lethal")) {
-            // Custom death condition for Realistjames
-            return (card.getCurrentLife() + card.getCurrentDefense()) <= 0;
-        }
-        return card.isDestroyed(); // Standard condition: life <= 0
-    }
-
-    private List<GameEvent> checkForDeaths(Game simulatedGame) {
-        List<GameEvent> deathEvents = new ArrayList<>();
-        boolean changed;
-
-        int maxIterations = 30;
-        int iterationCount = 0;
-
-        do {
-            iterationCount++;
-            if (iterationCount > maxIterations) {
-                logger.error("[{}] Infinite loop detected in checkForDeaths! Forcing game over.",
-                        simulatedGame.getGameId());
-                deathEvents.add(new GameOverEvent(simulatedGame.getGameId(), simulatedGame.getTurnNumber(), null,
-                        "Game ended due to an unresolved infinite effect loop."));
-                break;
-            }
-
-            changed = false;
-            List<CardInstance> cardsToCheck = Stream.concat(
-                    simulatedGame.getPlayer1().getFieldInternal().stream(),
-                    simulatedGame.getPlayer2().getFieldInternal().stream())
-                    .filter(c -> c != null)
-                    .toList();
-
-            for (CardInstance cardInSim : cardsToCheck) {
-                if (isCardDead(cardInSim)) {
-                    boolean alreadyProcessed = deathEvents.stream()
-                            .filter(e -> e instanceof CardDestroyedEvent)
-                            .anyMatch(e -> ((CardDestroyedEvent) e).card.getInstanceId()
-                                    .equals(cardInSim.getInstanceId()));
-
-                    if (!alreadyProcessed) {
-                        Player owner = simulatedGame.getOwnerOfCardInstance(cardInSim);
-                        if (owner == null)
-                            continue;
-
-                        CardInstance killer = cardInSim.getLastDamageSourceCard();
-                        Map<String, Object> deathContext = new HashMap<>();
-                        deathContext.put("eventTarget", cardInSim);
-                        if (killer != null) {
-                            deathContext.put("eventSource",
-                                    simulatedGame.findCardInstanceFromAnyField(killer.getInstanceId()));
-                        }
-                        List<GameEvent> onDeathTriggers = effectProcessor.processTrigger(simulatedGame,
-                                EffectTrigger.ON_DEATH, cardInSim, owner, deathContext);
-                        for (GameEvent triggerEvent : onDeathTriggers) {
-                            deathEvents.add(triggerEvent);
-                            simulatedGame.apply(triggerEvent);
-                        }
-
-                        if (!isCardDead(cardInSim)) {
-                            logger.debug("Card {} saved itself from death with an ON_DEATH trigger.",
-                                    cardInSim.getDefinition().getName());
-                            changed = true;
-                            break;
-                        }
-
-                        List<CardInstance> observers = new ArrayList<>(cardsToCheck);
-                        for (CardInstance observerCard : observers) {
-                            if (!observerCard.getInstanceId().equals(cardInSim.getInstanceId())) {
-                                CardInstance observerInSim = simulatedGame
-                                        .findCardInstanceFromAnyField(observerCard.getInstanceId());
-                                if (observerInSim != null && !isCardDead(observerInSim)) {
-                                    Player observerOwner = simulatedGame.getOwnerOfCardInstance(observerInSim);
-                                    List<GameEvent> onDeathOfAnyTriggers = effectProcessor.processTrigger(simulatedGame,
-                                            EffectTrigger.ON_DEATH_OF_ANY, observerInSim, observerOwner, deathContext);
-                                    for (GameEvent triggerEvent : onDeathOfAnyTriggers) {
-                                        deathEvents.add(triggerEvent);
-                                        simulatedGame.apply(triggerEvent);
-                                    }
-                                }
-                            }
-                        }
-
-                        CardDestroyedEvent destroyEvent = new CardDestroyedEvent(simulatedGame.getGameId(),
-                                simulatedGame.getTurnNumber(), GameStateMapper.mapCardInstanceToDTO(cardInSim),
-                                owner.getPlayerId());
-                        deathEvents.add(destroyEvent);
-                        simulatedGame.apply(destroyEvent);
-                        changed = true;
-
-                        break;
-                    }
-                }
-            }
-        } while (changed);
-
-        return deathEvents;
     }
 
     private boolean isCommandValid(Game game, GameCommand command) {
