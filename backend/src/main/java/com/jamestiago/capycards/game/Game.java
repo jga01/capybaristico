@@ -24,6 +24,7 @@ public class Game {
     private transient final Map<String, Card> allCardDefinitions;
     // A card in limbo now stores its owner's ID
     private final Map<String, Map.Entry<CardInstance, String>> cardsInLimbo = new ConcurrentHashMap<>();
+    private long eventSequenceCounter = 0;
 
     public enum GameState {
         WAITING_FOR_PLAYERS,
@@ -55,6 +56,18 @@ public class Game {
     }
 
     /**
+     * New constructor for reconstructing a game from events.
+     */
+    public Game(String gameId, Map<String, Card> allCardDefinitions) {
+        this.gameId = gameId;
+        this.gameState = GameState.WAITING_FOR_PLAYERS;
+        this.turnNumber = 0;
+        this.allCardDefinitions = allCardDefinitions;
+        // Players will be initialized by the GameStartedEvent when it is applied
+        logger.trace("[{}] Game shell created for reconstruction.", gameId);
+    }
+
+    /**
      * Copy constructor for creating a deep copy for simulations.
      */
     public Game(Game other) {
@@ -62,6 +75,7 @@ public class Game {
         this.turnNumber = other.turnNumber;
         this.gameState = other.gameState;
         this.allCardDefinitions = other.allCardDefinitions;
+        this.eventSequenceCounter = other.eventSequenceCounter;
 
         // Deep copy limbo
         other.cardsInLimbo.forEach((id, entry) -> {
@@ -70,8 +84,12 @@ public class Game {
             this.cardsInLimbo.put(id, new AbstractMap.SimpleEntry<>(copiedCard, ownerId));
         });
 
-        this.player1 = new Player(other.player1);
-        this.player2 = new Player(other.player2);
+        if (other.player1 != null) {
+            this.player1 = new Player(other.player1);
+        }
+        if (other.player2 != null) {
+            this.player2 = new Player(other.player2);
+        }
 
         if (other.currentPlayer != null) {
             this.currentPlayer = (other.currentPlayer.getPlayerId().equals(this.player1.getPlayerId()))
@@ -91,14 +109,18 @@ public class Game {
     private void fixupCardReferences() {
         // Create a map of all old instance IDs to new card instances
         Map<String, CardInstance> allNewCards = new ConcurrentHashMap<>();
-        player1.getFieldInternal().forEach(c -> {
-            if (c != null)
-                allNewCards.put(c.getInstanceId(), c);
-        });
-        player2.getFieldInternal().forEach(c -> {
-            if (c != null)
-                allNewCards.put(c.getInstanceId(), c);
-        });
+        if (player1 != null) {
+            player1.getFieldInternal().forEach(c -> {
+                if (c != null)
+                    allNewCards.put(c.getInstanceId(), c);
+            });
+        }
+        if (player2 != null) {
+            player2.getFieldInternal().forEach(c -> {
+                if (c != null)
+                    allNewCards.put(c.getInstanceId(), c);
+            });
+        }
         cardsInLimbo.values().forEach(entry -> allNewCards.put(entry.getKey().getInstanceId(), entry.getKey()));
 
         // Iterate through all new cards and update their lastDamageSourceCard reference
@@ -109,6 +131,10 @@ public class Game {
                 card.setLastDamageSourceCard(newSource); // Update the reference
             }
         });
+    }
+
+    public long getNextEventSequence() {
+        return this.eventSequenceCounter;
     }
 
     public void addCardToLimbo(CardInstance card, String ownerId) {
@@ -124,7 +150,8 @@ public class Game {
 
     // The core method for mutating game state. It trusts the event completely.
     public void apply(GameEvent event) {
-        logger.trace("[{}] APPLYING event: {} | Content: {}", gameId, event.getClass().getSimpleName(),
+        this.eventSequenceCounter++;
+        logger.trace("[{}] APPLYING event (seq {}): {} | Content: {}", gameId, this.eventSequenceCounter, event.getClass().getSimpleName(),
                 event.toString());
         if (event instanceof GameStartedEvent e) {
             applyGameStarted(e);
@@ -144,7 +171,6 @@ public class Game {
             applyTurnEnded(e);
         } else if (event instanceof GameOverEvent e) {
             applyGameOver(e);
-        } else if (event instanceof CardStatsChangedEvent e) {
         } else if (event instanceof CardHealedEvent e) {
             applyCardHealed(e);
         } else if (event instanceof CardBuffedEvent e) {
@@ -195,6 +221,14 @@ public class Game {
     }
 
     private void applyGameStarted(GameStartedEvent event) {
+        // Find definitions from event to create players if they don't exist
+        if (this.player1 == null && this.player2 == null) {
+            // This is a reconstruction scenario. Create dummy players.
+            // The deck will be empty, but events will populate hand/field.
+            this.player1 = new Player("Player 1", List.of(), event.player1Id);
+            this.player2 = new Player("Player 2", List.of(), event.player2Id);
+        }
+
         this.turnNumber = 1;
         this.currentPlayer = getPlayerById(event.startingPlayerId);
         if (this.currentPlayer != null) {

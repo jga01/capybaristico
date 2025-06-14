@@ -6,12 +6,10 @@ import com.jamestiago.capycards.game.ai.AICommandGenerator;
 import com.jamestiago.capycards.game.ai.BoardEvaluator;
 import com.jamestiago.capycards.game.commands.EndTurnCommand;
 import com.jamestiago.capycards.game.commands.GameCommand;
-import com.jamestiago.capycards.game.events.GameEvent;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -23,16 +21,13 @@ import java.util.concurrent.TimeUnit;
 public class AIService {
     private static final Logger logger = LoggerFactory.getLogger(AIService.class);
     private final GameService gameService;
-    private final GameEngine gameEngine;
     private ExecutorService aiThreadPool;
 
     private static final int AI_ACTION_DELAY_MS = 1200; // Delay between AI actions
     private static final int AI_INITIAL_THINK_DELAY_MS = 1500; // Delay before the first action
 
-    @Autowired
     public AIService(@Lazy GameService gameService, GameEngine gameEngine) {
         this.gameService = gameService;
-        this.gameEngine = gameEngine;
     }
 
     @PostConstruct
@@ -122,7 +117,6 @@ public class AIService {
             }
 
             Game simulationGame = new Game(game);
-            List<GameEvent> events = gameEngine.processCommand(simulationGame, command);
 
             double scoreAfterMove = BoardEvaluator.evaluate(simulationGame, aiPlayerId);
             logger.trace("AI simulation: Command {} -> Score {}", command.getCommandType(), scoreAfterMove);

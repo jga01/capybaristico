@@ -11,17 +11,21 @@ import com.jamestiago.capycards.game.ai.AIPlayer;
 import com.jamestiago.capycards.game.commands.GameCommand;
 import com.jamestiago.capycards.game.dto.GameStateResponse;
 import com.jamestiago.capycards.game.events.GameEvent;
+import com.jamestiago.capycards.game.events.GameEventLog;
 import com.jamestiago.capycards.game.events.PlayerDrewCardEvent;
 import com.jamestiago.capycards.game.events.GameStartedEvent;
 import com.jamestiago.capycards.model.Card;
 import com.jamestiago.capycards.repository.CardRepository;
+import com.jamestiago.capycards.repository.GameEventLogRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,28 +42,29 @@ public class GameService {
   private final Map<String, Lock> gameLocks = new ConcurrentHashMap<>();
   private List<Card> allCardDefinitions;
   private final CardRepository cardRepository;
+  private final GameEventLogRepository eventLogRepository;
   private final GameEngine gameEngine;
   private final AIService aiService;
   private final SocketIOServer socketServer;
   private final ObjectMapper objectMapper;
 
-  @Autowired
   public GameService(CardRepository cardRepository, GameEngine gameEngine, @Lazy AIService aiService,
-      SocketIOServer socketServer, ObjectMapper objectMapper) {
+      SocketIOServer socketServer, ObjectMapper objectMapper, GameEventLogRepository eventLogRepository) {
     this.cardRepository = cardRepository;
     this.gameEngine = gameEngine;
     this.aiService = aiService;
     this.socketServer = socketServer;
     this.objectMapper = objectMapper;
+    this.eventLogRepository = eventLogRepository;
     logger.info("GameService initialized.");
   }
 
   @PostConstruct
-  public void initializeCardDefinitions() {
+  public void initialize() {
     loadAllCardDefinitions();
+    reconstructActiveGames();
   }
 
-  // Reloads card definitions from the database after the seeder has run.
   public void loadAllCardDefinitions() {
     this.allCardDefinitions = cardRepository.findAll();
     if (this.allCardDefinitions.isEmpty()) {
@@ -67,6 +72,49 @@ public class GameService {
     } else {
       logger.info("Successfully loaded {} card definitions from the database.", allCardDefinitions.size());
     }
+  }
+  
+  private void reconstructActiveGames() {
+    logger.info("Searching for active games to reconstruct...");
+    List<String> activeGameIds = eventLogRepository.findAllActiveGameIds();
+    int reconstructedCount = 0;
+    for (String gameId : activeGameIds) {
+      try {
+        reconstructGame(gameId);
+        reconstructedCount++;
+      } catch (Exception e) {
+        logger.error("Failed to reconstruct game {}", gameId, e);
+      }
+    }
+    logger.info("Reconstruction complete. {} active games restored.", reconstructedCount);
+  }
+  
+  public Game reconstructGame(String gameId) throws Exception {
+    logger.info("Reconstructing game state for gameId: {}", gameId);
+    List<GameEventLog> eventLogs = eventLogRepository.findByGameIdOrderByEventSequenceAsc(gameId);
+    if (eventLogs.isEmpty()) {
+      throw new IllegalStateException("No events found for gameId: " + gameId);
+    }
+  
+    // Pass the definitions map to the constructor
+    Map<String, Card> definitionsMap = allCardDefinitions.stream()
+      .collect(Collectors.toConcurrentMap(Card::getCardId, c -> c));
+    Game game = new Game(gameId, definitionsMap);
+  
+    for (GameEventLog eventLog : eventLogs) {
+      GameEvent event = objectMapper.readValue(eventLog.getEventData(), GameEvent.class);
+      game.apply(event);
+    }
+  
+    if (game.getGameState().name().contains("GAME_OVER")) {
+      logger.info("Game {} was already over. Not adding to active games.", gameId);
+      return game;
+    }
+  
+    activeGames.put(gameId, game);
+    gameLocks.put(gameId, new ReentrantLock());
+    logger.info("Successfully reconstructed game {}. Current state: {}", gameId, game.getGameState());
+    return game;
   }
 
   private List<Card> generatePlayerDeck() {
@@ -104,7 +152,6 @@ public class GameService {
     MDC.remove("gameId");
 
     return newGame;
-
   }
 
   public Game createAiGame(String playerDisplayName) {
@@ -147,6 +194,7 @@ public class GameService {
     return activeGames.get(gameId);
   }
 
+  @Transactional
   public void handleCommand(GameCommand command) {
     Lock lock = gameLocks.get(command.gameId);
     if (lock == null) {
@@ -197,15 +245,37 @@ public class GameService {
     }
   }
 
+  @Transactional
   private void applyAndBroadcast(Game game, List<GameEvent> events) {
     if (events == null || events.isEmpty())
       return;
+
+    // Save events to the database
+    List<GameEventLog> logsToSave = new ArrayList<>();
+    for (GameEvent event : events) {
+      try {
+        String eventJson = objectMapper.writeValueAsString(event);
+        GameEventLog log = new GameEventLog(
+            game.getGameId(),
+            game.getNextEventSequence() + logsToSave.size(),
+            Instant.now(),
+            event.getClass().getSimpleName(),
+            eventJson);
+        logsToSave.add(log);
+      } catch (Exception e) {
+        logger.error("[{}] CRITICAL: Failed to serialize game event for persistence. Aborting save.", game.getGameId(),
+            e);
+        return;
+      }
+    }
+    eventLogRepository.saveAll(logsToSave);
 
     // Apply events to the master game state
     for (GameEvent event : events) {
       game.apply(event);
     }
-    logger.debug("[{}] Applied {} events. New game state: {}", game.getGameId(), events.size(), game.getGameState());
+    logger.debug("[{}] Applied and persisted {} events. New game state: {}", game.getGameId(), events.size(),
+        game.getGameState());
 
     // The new payload will contain both the new state and the events for animation
     socketServer.getRoomOperations(game.getGameId()).getClients().forEach(c -> {
@@ -226,7 +296,6 @@ public class GameService {
     });
 
     logger.debug("[{}] Broadcasted new state and {} events to room.", game.getGameId(), events.size());
-    // --- END OF MODIFICATION ---
   }
 
   private List<GameEvent> tailorEventsForPlayer(List<GameEvent> originalEvents, String targetPlayerId) {

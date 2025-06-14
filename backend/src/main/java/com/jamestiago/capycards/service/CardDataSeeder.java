@@ -8,7 +8,6 @@ import com.jamestiago.capycards.repository.CardRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
@@ -25,7 +24,6 @@ public class CardDataSeeder {
     private final CardRepository cardRepository;
     private final ObjectMapper objectMapper;
 
-    @Autowired
     public CardDataSeeder(CardRepository cardRepository, ObjectMapper objectMapper) {
         this.cardRepository = cardRepository;
         this.objectMapper = objectMapper;

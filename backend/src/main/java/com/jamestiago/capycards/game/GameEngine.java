@@ -24,13 +24,6 @@ public class GameEngine {
         this.effectProcessor = new EffectProcessor();
     }
 
-    private record CommandResult(List<GameEvent> events, Game simulatedGame) {
-        CommandResult(List<GameEvent> events, Game simulatedGame) {
-            this.events = events;
-            this.simulatedGame = new Game(simulatedGame);
-        }
-    }
-
     private record CardStats(int attack, int defense) {
         public CardStats(CardInstance card) {
             this(card.getCurrentAttack(), card.getCurrentDefense());

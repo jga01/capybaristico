@@ -31,18 +31,37 @@ public class Player {
     }
 
     /**
-     * Original constructor for creating a new player at the start of a game.
+     * Primary constructor for creating a new player for a new game.
      */
     public Player(String displayName, List<Card> cardDefinitionsForDeck) {
-        this.playerId = UUID.randomUUID().toString();
+        this(displayName, cardDefinitionsForDeck, UUID.randomUUID().toString(), true);
+    }
+
+    /**
+     * Constructor used for reconstructing a player from events.
+     * The player ID is provided, and the deck is not shuffled.
+     */
+    public Player(String displayName, List<Card> cardDefinitionsForDeck, String playerId) {
+        this(displayName, cardDefinitionsForDeck, playerId, false);
+    }
+
+    /**
+     * Private base constructor to handle all player setup.
+     */
+    private Player(String displayName, List<Card> cardDefinitionsForDeck, String playerId, boolean shuffleDeck) {
+        this.playerId = playerId;
         this.displayName = displayName;
 
         List<CardInstance> deckCards = new ArrayList<>();
-        for (Card cardDef : cardDefinitionsForDeck) {
-            deckCards.add(new CardInstance(cardDef));
+        if (cardDefinitionsForDeck != null) {
+            for (Card cardDef : cardDefinitionsForDeck) {
+                deckCards.add(new CardInstance(cardDef));
+            }
         }
         this.deck = new Deck(deckCards);
-        this.deck.shuffle();
+        if (shuffleDeck) {
+            this.deck.shuffle();
+        }
 
         this.hand = new ArrayList<>();
         this.field = new ArrayList<>(Collections.nCopies(MAX_FIELD_SIZE, null));

@@ -19,7 +19,6 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,7 +40,6 @@ public class GameSocketHandler {
     private final Map<UUID, String> clientToGameOrLobbyIdMap = new ConcurrentHashMap<>();
     private final Lock lobbyLock = new ReentrantLock();
 
-    @Autowired
     public GameSocketHandler(SocketIOServer server, GameService gameService, ObjectMapper objectMapper) {
         this.server = server;
         this.gameService = gameService;
