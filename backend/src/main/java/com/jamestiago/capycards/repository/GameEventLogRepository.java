@@ -22,4 +22,10 @@ public interface GameEventLogRepository extends JpaRepository<GameEventLog, Long
      */
     @Query("SELECT DISTINCT e.gameId FROM GameEventLog e WHERE e.gameId NOT IN (SELECT e2.gameId FROM GameEventLog e2 WHERE e2.eventType = 'GameOverEvent')")
     List<String> findAllActiveGameIds();
+
+    /**
+     * Finds all distinct game IDs, ordered by the most recent first.
+     */
+    @Query("SELECT DISTINCT e.gameId FROM GameEventLog e ORDER BY e.gameId DESC")
+    List<String> findAllDistinctGameIds();
 }

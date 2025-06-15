@@ -9,6 +9,8 @@ import { useGame } from './context/GameContext';
 import GameScreen from './components/GameScreen';
 import { getGameAssetUrls } from './services/assetService';
 import { log } from './services/loggingService';
+import AdminDashboard from './pages/AdminDashboard'; // Import the new admin page
+
 // --- UI Components ---
 const PreloadTrigger = ({ onLoaded }) => {
   useLoader(THREE.TextureLoader, getGameAssetUrls());
@@ -101,18 +103,26 @@ function App() {
   const { gameId, initialGameState, isGameOver, resetGameState } = useGame();
   const [isPreloading, setIsPreloading] = useState(false);
   const [assetsLoaded, setAssetsLoaded] = useState(false);
+
+  // Simple routing logic
+  if (window.location.pathname.startsWith('/admin')) {
+    return <AdminDashboard />;
+  }
+
   // Trigger preloading when a game is ready but assets are not yet loaded
   useEffect(() => {
     if (gameId && !assetsLoaded) {
       setIsPreloading(true);
     }
   }, [gameId, assetsLoaded]);
+
   const handleReturnToLobby = () => {
     resetGameState();
     resetLobbyState();
     setAssetsLoaded(false); // Reset for the next game
     setIsPreloading(false);
   };
+
   if (!isConnected) {
     return (
       <div className="App" style={{ color: '#ddd', textAlign: 'center', paddingTop: '50px' }}>
@@ -120,6 +130,7 @@ function App() {
       </div>
     );
   }
+
   if (isPreloading && !assetsLoaded) {
     return (
       <div className="App game-active" style={{ backgroundColor: '#1a1d21' }}>
@@ -138,6 +149,7 @@ function App() {
       </div>
     );
   }
+
   if (gameId && initialGameState && assetsLoaded) {
     if (isGameOver) {
       return <GameOverScreen onReturnToLobby={handleReturnToLobby} />;
@@ -148,6 +160,7 @@ function App() {
       </div>
     );
   }
+
   return <LobbyScreen />;
 }
 export default App;
