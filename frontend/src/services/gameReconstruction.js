@@ -55,9 +55,8 @@ export const applyEventToState = (currentState, event, allCardDefinitions) => {
             case 'CARD_PLAYED': {
                 const player = getPlayerState(draft, event.playerId);
                 if (player && event.card) {
-                    // FIX: Create a mutable copy of the card from the event payload.
-                    const newCardOnField = { ...event.card };
-                    newCardOnField.isExhausted = true; // Now we can safely modify the copy.
+                    // Create a new object for the card on the field, setting its exhausted state.
+                    const newCardOnField = { ...event.card, isExhausted: true };
                     player.field[event.toFieldSlot] = newCardOnField;
                     player.handSize = event.newHandSize;
                 }
