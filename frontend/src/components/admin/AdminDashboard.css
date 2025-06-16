@@ -157,7 +157,16 @@
 
 .card-form textarea {
     min-height: 150px;
+    resize: vertical;
     font-family: monospace;
+}
+
+.effect-builder-container {
+    grid-column: 1 / -1;
+    border: 1px solid #d9d9d9;
+    padding: 15px;
+    border-radius: 4px;
+    background-color: #fafafa;
 }
 
 .card-form .form-actions {
@@ -165,12 +174,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
-}
-
-.json-error {
-    color: red;
-    font-size: 0.9em;
-    margin-top: 5px;
 }
 
 

@@ -1,19 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import { produce } from 'immer';
+import EffectBuilder from './effect-builder/EffectBuilder';
 
 const CardForm = ({ initialData, onSubmit, onCancel, isCreating }) => {
-    const [formData, setFormData] = useState(initialData || {
+    const getInitialFormData = () => ({
         cardId: '', name: '', type: '', initialLife: 0, attack: 0, defense: 0,
-        effectText: '', effectConfiguration: '[]', rarity: 'COMMON',
+        effectText: '', rarity: 'COMMON',
         imageUrl: '', flavorText: '', isDirectlyPlayable: true
     });
-    const [jsonError, setJsonError] = useState('');
+
+    const [formData, setFormData] = useState(initialData || getInitialFormData());
+    const [effects, setEffects] = useState([]);
 
     useEffect(() => {
-        setFormData(initialData || {
-            cardId: '', name: '', type: '', initialLife: 0, attack: 0, defense: 0,
-            effectText: '', effectConfiguration: '[]', rarity: 'COMMON',
-            imageUrl: '', flavorText: '', isDirectlyPlayable: true
-        });
+        if (initialData) {
+            // Omit effectConfiguration from the main form data
+            const { effectConfiguration, ...mainData } = initialData;
+            setFormData(mainData);
+            try {
+                const parsedEffects = JSON.parse(effectConfiguration || '[]');
+                setEffects(Array.isArray(parsedEffects) ? parsedEffects : []);
+            } catch (e) {
+                console.error("Failed to parse effect configuration:", e);
+                alert("Warning: Could not parse existing effect configuration. It will be cleared on save if not corrected.");
+                setEffects([]);
+            }
+        } else {
+            setFormData(getInitialFormData());
+            setEffects([]);
+        }
     }, [initialData]);
 
     const handleChange = (e) => {
@@ -21,24 +36,17 @@ const CardForm = ({ initialData, onSubmit, onCancel, isCreating }) => {
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
-    const handleJsonChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        try {
-            JSON.parse(value);
-            setJsonError('');
-        } catch (error) {
-            setJsonError('Invalid JSON format.');
-        }
-    };
-
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (jsonError) {
-            alert('Cannot submit with invalid JSON in Effect Configuration.');
-            return;
-        }
-        onSubmit(formData);
+        const finalData = {
+            ...formData,
+            effectConfiguration: JSON.stringify(effects, null, 2)
+        };
+        onSubmit(finalData);
+    };
+
+    const handleEffectsChange = (newEffects) => {
+        setEffects(newEffects);
     };
 
     return (
@@ -61,16 +69,15 @@ const CardForm = ({ initialData, onSubmit, onCancel, isCreating }) => {
                     </div>
                     <div className="form-group full-width"><label>Effect Text</label><textarea name="effectText" value={formData.effectText} onChange={handleChange}></textarea></div>
                     <div className="form-group full-width"><label>Flavor Text</label><textarea name="flavorText" value={formData.flavorText} onChange={handleChange}></textarea></div>
-                    <div className="form-group full-width">
-                        <label>Effect Configuration (JSON)</label>
-                        <textarea name="effectConfiguration" value={formData.effectConfiguration} onChange={handleJsonChange}></textarea>
-                        {jsonError && <p className="json-error">{jsonError}</p>}
-                    </div>
-                    <div className="form-group full-width"><label><input type="checkbox" name="isDirectlyPlayable" checked={formData.isDirectlyPlayable} onChange={handleChange} /> Is Directly Playable</label></div>
 
+                    <div className="effect-builder-container">
+                        <EffectBuilder effects={effects} onChange={handleEffectsChange} />
+                    </div>
+
+                    <div className="form-group full-width"><label><input type="checkbox" name="isDirectlyPlayable" checked={formData.isDirectlyPlayable} onChange={handleChange} /> Is Directly Playable</label></div>
                     <div className="form-actions">
                         <button type="button" className="admin-button secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="admin-button" disabled={!!jsonError}>Save Card</button>
+                        <button type="submit" className="admin-button">Save Card</button>
                     </div>
                 </form>
             </div>

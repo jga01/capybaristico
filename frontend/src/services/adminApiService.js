@@ -51,6 +51,12 @@ export const reloadCardDefinitions = async () => {
     return response.text();
 };
 
+export const getEffectOptions = async () => {
+    const response = await fetch(`${API_BASE}/effect-options`);
+    if (!response.ok) throw new Error('Failed to fetch effect options');
+    return response.json();
+};
+
 // --- Game API ---
 export const getAllGameIds = async () => {
     const response = await fetch(`${API_BASE}/games/ids`);
